@@ -14,6 +14,8 @@ os.environ["SECRET_KEY"] = "a" * 64
 os.environ["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
 # Sin red en los tests: la subida no dispara el análisis salvo en los que lo prueban.
 os.environ["AUTO_ANALYZE_UPLOAD"] = "false"
+# El filtro de temas habla con OpenAI: apagado en la suite salvo donde se prueba.
+os.environ["CONTENT_MODERATION_ENABLED"] = "false"
 os.environ["IA_PROVIDER"] = "openai"
 os.environ["DB_PROVIDER"] = "memory"
 os.environ["EVENT_BUS_BACKEND"] = "memory"
@@ -64,6 +66,7 @@ _CACHE_NAMES = (
     "get_chat_repo",
     "get_learning_path_repo",
     "get_ia_analyst",
+    "get_content_safety",
     "get_event_bus",
     "get_metrics",
     "get_cache",

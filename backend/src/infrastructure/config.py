@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_MODEL_DEFAULT: str = "gpt-4o-mini"
     OPENAI_MODEL_STRONG: str = "gpt-4o"
+    #: Filtro de temas y mensajes (ADR-036). Apagarlo es solo para emergencias.
+    CONTENT_MODERATION_ENABLED: bool = True
+    #: Umbrales de la política (0-1). El resto vive en SafetyThresholds.
+    MODERATION_ILLICIT: float = 0.5
+    MODERATION_SELF_HARM: float = 0.5
 
     # Seguridad JWT
     SECRET_KEY: str = ""

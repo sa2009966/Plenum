@@ -26,6 +26,17 @@ _ESCRITURA_INFORMAL = (
     "podés, tenés): entiéndelo con naturalidad y nunca comentes su forma de escribir."
 )
 
+#: Segunda línea del filtro de temas (ADR-036): si el moderador no respondió, el
+#: modelo igual no enseña a hacer daño. Plenum lo usan menores.
+_SEGURIDAD = (
+    "Tus estudiantes pueden ser menores de edad. Nunca des instrucciones, recetas ni "
+    "pasos para fabricar armas, explosivos o drogas, hacer daño a alguien, hackear "
+    "sistemas ajenos ni nada sexual: di con amabilidad que eso no lo trabajas y "
+    "ofrece un tema cercano y seguro. Explicar historia, ciencia o efectos sí está "
+    "bien. Si el estudiante muestra señales de querer hacerse daño, respóndele con "
+    "cercanía y anímale a hablar con un adulto de confianza o con emergencias."
+)
+
 #: Quién es el tutor. Sin esto no podía presentarse: sabía que era "un tutor
 #: educativo" y nada más, así que "¿qué podés hacer?" recibía una respuesta vaga.
 _IDENTIDAD = (
@@ -38,7 +49,7 @@ _IDENTIDAD = (
     "a contarte qué quiere aprender. Si te preguntan qué es Plenum, di que es la "
     "plataforma de aprendizaje donde estás y que tú eres su tutor; no le atribuyas "
     "funciones que no estén en esta descripción. Si no te lo preguntan, no te presentes: "
-    "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL
+    "responde directamente a lo que pide. " + _ESCRITURA_INFORMAL + " " + _SEGURIDAD
 )
 
 
@@ -124,6 +135,19 @@ def _oferta_de_nivelacion(tema: str | None) -> str:
         "(por ejemplo, qué época de la historia o qué lenguaje de programación)."
     )
 
+
+#: Qué contenido corresponde a cada tramo de una ruta (ADR-037).
+_TEMARIO_POR_NIVEL = {
+    "intermedio": (
+        "Nivel intermedio: aplicar lo básico a problemas de varios pasos, relacionar "
+        "conceptos entre sí, casos menos directos, errores frecuentes y cómo evitarlos."
+    ),
+    "avanzado": (
+        "Nivel avanzado: formalizar y justificar (por qué funciona, no solo cómo), "
+        "casos límite y excepciones, problemas abiertos o de aplicación real, y "
+        "conexiones con otros temas más amplios."
+    ),
+}
 
 _NIVELES = {
     "basico": (
@@ -445,19 +469,31 @@ class TutorPolicy:
             user=f"Tema completado: «{topic_label}»." + (f" Nivel alcanzado: {nivel}." if nivel else ""),
         )
 
-    def propose_syllabus(self, topic_label: str, level: str | None) -> ChatPrompt:
+    def propose_syllabus(
+        self, topic_label: str, level: str | None, avoid: tuple[str, ...] = ()
+    ) -> ChatPrompt:
         nivel = _NIVELES.get(level or "", (None, ""))[0]
+        tramo = ""
+        if avoid:
+            # Un tramo nuevo de una ruta (ADR-037): lo ya visto no se repite y el
+            # nivel tiene que notarse en QUÉ se enseña, no solo en el tono.
+            vistos = "; ".join(avoid[:30])
+            tramo = (
+                f" El estudiante ya completó estos subtemas: {vistos}. NO los repitas ni "
+                "los reformules con otro nombre: este temario va DESPUÉS de ellos. "
+                + _TEMARIO_POR_NIVEL.get(level or "", "")
+            )
         return ChatPrompt(
             system=(
-                "Diseñas temarios cortos para un tutor. Responde SOLO en JSON con la clave "
-                "modules: una lista de 3 a 6 subtemas en orden de enseñanza, cada uno con "
+                "Diseñas temarios para un tutor. Responde SOLO en JSON con la clave "
+                "modules: una lista de 5 a 8 subtemas en orden de enseñanza, cada uno con "
                 "title (2-6 palabras, en español) y prerequisites (lista de títulos de "
                 "subtemas ANTERIORES de esta misma lista; vacía si no depende de ninguno)."
             ),
             user=(
                 f"Tema: «{topic_label}»."
                 + (f" Nivel del estudiante: {nivel}." if nivel else "")
-                + " Empieza por lo que hace falta para entender el resto."
+                + (tramo or " Empieza por lo que hace falta para entender el resto.")
             ),
         )
 
@@ -555,6 +591,7 @@ class TutorPolicy:
             )
             system = (
                 f"Eres LARIA, el tutor adaptativo de Plenum.{_persona(learner.persona if learner else None)} "
+                f"{_SEGURIDAD} "
                 f"Modo: {decision.mode.value}. "
                 f"Estilo cognitivo: {decision.cognitive_style.value}. {style} "
                 f"Objetivo: {decision.objective} "

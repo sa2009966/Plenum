@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from src.domain.aggregates.concept_graph import ConceptGraph
 from src.domain.aggregates.learning_path import (
     MASTERY_COMPLETED,
+    tier_index,
     CheckOutcome,
     LearningModule,
     LearningPathAggregate,
@@ -92,6 +93,29 @@ class TeachingPolicy:
         ]
         return min(candidatos)[1] if candidatos else None
 
+    def tier_to_open(self, path: LearningPathAggregate, profile: StudentProfile | None) -> str | None:
+        """El tramo que toca abrir porque el nivel del tema superó al tramo actual (ADR-037).
+
+        El nivel sale de la nivelación, que es evidencia calificada: el tramo no se
+        abre porque el cliente lo pida, sino porque el estudiante lo demostró. Si
+        saltó directamente a avanzado, se abre avanzado: no se le hace repetir lo
+        que ya probó.
+        """
+        if not (path.topic and path.tiers and profile):
+            return None
+        nivel = profile.level_for_topic(path.topic)
+        return nivel if tier_index(nivel) > tier_index(path.current_tier) else None
+
+    @staticmethod
+    def _fin_de_tramo(path: LearningPathAggregate) -> str:
+        siguiente = path.next_tier
+        if siguiente is None:
+            return "Completaste la ruta."
+        return (
+            f"Completaste el tramo {_NOMBRE_TRAMO[path.current_tier]}. Haz la prueba de paso "
+            f"(la nivelación de «{path.title}») para abrir el tramo {_NOMBRE_TRAMO[siguiente]}."
+        )
+
     def needs_teaching(self, path: LearningPathAggregate, profile: StudentProfile | None, m: LearningModule) -> bool:
         """Si un módulo todavía hay que enseñarlo."""
         if m.concept in path.teaching.passed_concepts:
@@ -136,7 +160,7 @@ class TeachingPolicy:
             if m.concept != exclude and self.needs_teaching(path, profile, m)
         ]
         if not pendientes:
-            return NextStep(TeachingPhase.COMPLETED, None, None, reason="Completaste la ruta.")
+            return NextStep(TeachingPhase.COMPLETED, None, None, reason=self._fin_de_tramo(path))
         objetivo = pendientes[0]
         gate = self._gate(path).evaluate(objetivo.concept, profile)
         # Solo SEQUENCE lidera con la base (invariante 5): exige evidencia medida
@@ -234,6 +258,9 @@ class TeachingPolicy:
     def _titulo(path: LearningPathAggregate, concept: str) -> str:
         m = path.module(concept)
         return m.title if m else concept
+
+
+_NOMBRE_TRAMO = {"basico": "básico", "intermedio": "intermedio", "avanzado": "avanzado"}
 
 
 def outcome_from(correct: int, total: int) -> CheckOutcome:

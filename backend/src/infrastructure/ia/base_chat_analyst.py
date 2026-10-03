@@ -397,8 +397,10 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             raise IAAnalysisError(_MSG_RESPUESTA)
         return [str(t).strip()[:80] for t in temas if str(t).strip()][:3]
 
-    async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
-        prompt = self._policy.propose_syllabus(topic_label, level)
+    async def propose_syllabus(
+        self, topic_label: str, level: str | None, avoid: tuple[str, ...] = ()
+    ) -> list[SyllabusItem]:
+        prompt = self._policy.propose_syllabus(topic_label, level, avoid)
         data = await self._chat_json(prompt.system, prompt.user, model=self.model)
         modulos = data.get("modules")
         if not isinstance(modulos, list):

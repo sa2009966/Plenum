@@ -217,7 +217,26 @@ def get_chat_tutor_service() -> "ChatTutorService":
         profile_repository=get_profile_repo(),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         preferences=get_learning_preferences_service(),
+        safety=get_content_safety(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_content_safety() -> "ContentSafetyService":
+    """Filtro de temas y mensajes (ADR-036). Sin clave o apagado: deja pasar todo."""
+    from src.application.services.content_safety_service import ContentSafetyService
+    from src.domain.services.content_safety import ContentSafetyPolicy, SafetyThresholds
+
+    moderador = None
+    if settings.CONTENT_MODERATION_ENABLED and settings.OPENAI_API_KEY:
+        from src.infrastructure.openai.openai_moderator import OpenAIModerator
+
+        moderador = OpenAIModerator(settings.OPENAI_API_KEY)
+    umbrales = SafetyThresholds(
+        illicit=settings.MODERATION_ILLICIT,
+        self_harm=settings.MODERATION_SELF_HARM,
+    )
+    return ContentSafetyService(moderador, ContentSafetyPolicy(umbrales))
 
 
 @lru_cache(maxsize=1)
@@ -430,6 +449,7 @@ def get_quiz_service() -> QuizService:
         concept_graph_repository=get_concept_graph_repo(),
         strong_model=settings.OPENAI_MODEL_STRONG,
         analyze_service=get_analyze_service(),
+        safety=get_content_safety(),
     )
 
 
@@ -558,4 +578,5 @@ def get_teaching_service() -> "TeachingService":
         lesson_generator=cast(LessonGenerator, get_ia_analyst()),
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         attempt_repository=get_attempt_repo(),
+        safety=get_content_safety(),
     )

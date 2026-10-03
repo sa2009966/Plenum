@@ -77,8 +77,11 @@ class QuizService:
         graph_id: str = "default",
         analyze_service=None,
         strong_model: Optional[str] = None,
+        safety=None,
     ) -> None:
         self._doc_repo = document_repository
+        # Filtro de temas (ADR-036): una nivelación o práctica crea contenido sobre el tema.
+        self._safety = safety
         self._quiz_repo = quiz_repository
         self._attempt_repo = attempt_repository
         self._interaction_repo = interaction_repository
@@ -173,6 +176,7 @@ class QuizService:
         tema y de su base— para que el motor deje de estar ciego desde el primer
         turno en vez de desde el quinto.
         """
+        await self._tema_seguro(topic)
         graph, nivel = await self._grafo_y_nivel(topic, user_id)
         # La ronda no la manda el cliente: sale del nivel que el estudiante ya
         # tenga en ese tema. Así el cliente no lleva estado (ADR-017, decisión 4).
@@ -190,9 +194,14 @@ class QuizService:
         pero NO cambia el nivel guardado: practicar no es nivelarse. La dificultad
         se ajusta al nivel que ya tenga en el tema.
         """
+        await self._tema_seguro(topic)
         graph, nivel = await self._grafo_y_nivel(topic, user_id)
         plan = plan_practice(topic, graph, nivel, num_questions)
         return await self._quiz_por_tema(plan, user_id)
+
+    async def _tema_seguro(self, topic: str) -> None:
+        if self._safety is not None:
+            await self._safety.ensure_safe_topic(topic)
 
     async def _grafo_y_nivel(self, topic: str, user_id: UUID):
         """El currículum y el nivel que el estudiante ya tiene en ese tema.

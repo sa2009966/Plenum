@@ -13,6 +13,7 @@ from src.application.services.teaching_service import (
     TeachingService,
 )
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
@@ -197,6 +198,7 @@ def _map_module(m) -> LearningModuleResponse:
         mastery=m.mastery,
         position=m.position,
         kind=m.kind.value if hasattr(m, "kind") else "content",
+        tier=m.tier or None,
     )
 
 
@@ -297,6 +299,8 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
         updated_at=p.updated_at,
         topic=p.topic,
         teaching=_map_teaching(p),
+        tiers=list(p.tiers),
+        next_tier=p.next_tier,
     )
 
 
@@ -419,6 +423,8 @@ async def path_from_topic(
     usuario = UUID(current_user_id)
     try:
         path = await service.path_for_topic(usuario, body.topic)
+    except UnsafeTopicError:
+        raise  # 422 con `reason` (ADR-036), en main.py
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return _map_path(await service.projected(path, usuario))
@@ -445,6 +451,9 @@ async def lesson(
         paso = await service.lesson(usuario, path_id)
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except UnsafeTopicError:
+        # Ruta creada antes del filtro de temas (ADR-036): no se dan más clases.
+        raise
     except AssessmentRequired as exc:
         raise HTTPException(
             status_code=409,

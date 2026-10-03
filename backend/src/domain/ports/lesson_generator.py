@@ -62,5 +62,10 @@ class LessonGenerator(ABC):
         return []
 
     @abstractmethod
-    async def propose_syllabus(self, topic_label: str, level: str | None) -> list[SyllabusItem]:
-        """Temario de un tema que el grafo curricular no cubre. Se valida y se congela."""
+    async def propose_syllabus(
+        self, topic_label: str, level: str | None, avoid: tuple[str, ...] = ()
+    ) -> list[SyllabusItem]:
+        """Temario de un tema (o de un tramo nuevo de su ruta, ADR-037). Se valida y se congela.
+
+        `avoid`: subtemas que la ruta ya tiene; el tramo nuevo no los repite.
+        """

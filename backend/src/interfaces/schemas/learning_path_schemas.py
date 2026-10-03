@@ -34,6 +34,8 @@ class LearningModuleResponse(BaseModel):
     position: int = 0
     #: `content` (lo que vino a aprender) o `prerequisite` (base del tema).
     kind: Literal["content", "prerequisite"] = "content"
+    #: Tramo del módulo (ADR-037): `basico` · `intermedio` · `avanzado`. null en rutas manuales.
+    tier: Optional[Literal["basico", "intermedio", "avanzado"]] = None
 
 
 class TeachingStateResponse(BaseModel):
@@ -64,6 +66,12 @@ class LearningPathResponse(BaseModel):
     #: Tema canónico (clave del nivel). Vacío en rutas creadas a mano.
     topic: str = ""
     teaching: Optional[TeachingStateResponse] = None
+    #: Tramos abiertos, en orden (ADR-037). La ruta crece un tramo con cada prueba de paso.
+    tiers: list[Literal["basico", "intermedio", "avanzado"]] = []
+    #: El tramo que abre la próxima prueba de paso (la nivelación del tema); null si
+    #: ya está en avanzado o la ruta es manual. Con `teaching.phase == "completed"`
+    #: y esto no nulo, la ruta no terminó: ofrece la prueba de paso.
+    next_tier: Optional[Literal["intermedio", "avanzado"]] = None
 
 
 class LearningPathListResponse(BaseModel):

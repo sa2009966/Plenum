@@ -61,8 +61,13 @@ class ModeloFalso:
         self.siguientes = getattr(self, "siguientes", 0) + 1
         return ["Programación orientada a objetos", "Estructuras de datos"]
 
-    async def propose_syllabus(self, label, level):
+    async def propose_syllabus(self, label, level, avoid=()):
         self.temarios.append(label)
+        if avoid:
+            # Tramo nuevo (ADR-037): repite uno ya visto para comprobar que se descarta.
+            self.tramos = getattr(self, "tramos", []) + [(level, avoid)]
+            return [SyllabusItem(avoid[0]), SyllabusItem(f"Patrones {level}"),
+                    SyllabusItem(f"Diseño {level}", (f"Patrones {level}",))]
         return [SyllabusItem("Variables"), SyllabusItem("Bucles", ("Variables",))]
 
 

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.application.services.quiz_service import QuizService
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.dependencies import get_current_user_id, get_quiz_service
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
@@ -61,6 +62,8 @@ async def generate_diagnostic(
         quiz = await service.generate_diagnostic(body.topic, UUID(current_user_id))
     except IAAnalysisError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    except UnsafeTopicError:
+        raise  # 422 con `reason` (ADR-036), en main.py
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -100,6 +103,8 @@ async def generate_practice(
         )
     except IAAnalysisError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    except UnsafeTopicError:
+        raise  # 422 con `reason` (ADR-036), en main.py
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)

@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from src.application.services.analyze_document_service import AnalyzeDocumentService
+from src.application.services.content_safety_service import ContentSafetyService
 from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.llm_gate import LlmGate
 from src.application.services.topic_catalog import TopicCatalog
@@ -15,6 +16,7 @@ from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
+from src.domain.services.content_safety import SafetyAction, safety_message
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
 from src.domain.services.learner_context import (
@@ -32,7 +34,9 @@ from src.domain.services.response_envelope import (
     EnvelopeType,
     ResponseEnvelope,
     envelope_type_for_mode,
+    plain_envelope,
 )
+from src.domain.ports.embodiment import AffectState
 
 
 def _control_flow_payload(adaptation: AdaptationParameters) -> dict:
@@ -175,6 +179,7 @@ class ChatTutorService:
         profile_repository: Optional[StudentProfileRepository] = None,
         topic_catalog: Optional[TopicCatalog] = None,
         preferences: Optional[LearningPreferencesService] = None,
+        safety: Optional[ContentSafetyService] = None,
     ) -> None:
         self._analyze_service = analyze_service
         self._llm_gate = llm_gate
@@ -182,6 +187,7 @@ class ChatTutorService:
         self._profile_repo = profile_repository
         self._topics = topic_catalog
         self._preferences = preferences
+        self._safety = safety
         self._affect = AffectPolicy()
         self._intent = IntentDetector()
 
@@ -245,6 +251,32 @@ class ChatTutorService:
         )
         return replace(base, levels=niveles)
 
+    async def _respuesta_de_seguridad(
+        self, question: str, document_id: Optional[UUID]
+    ) -> TutorResponse | None:
+        """Si el mensaje no se trabaja (ADR-036), la respuesta fija; si se trabaja, None.
+
+        Va antes del modelo y del motor: un mensaje rechazado no gasta tokens ni deja
+        evidencia, y la autolesión recibe siempre la misma respuesta cuidada, no lo que
+        el modelo improvise.
+        """
+        if self._safety is None:
+            return None
+        veredicto = await self._safety.verdict(question)
+        if veredicto.allowed:
+            return None
+        texto = safety_message(veredicto)
+        envelope = plain_envelope(
+            "answer",
+            texto,
+            grounded=document_id is not None,
+            emotion=AffectState.CALM
+            if veredicto.action is SafetyAction.SUPPORT
+            else AffectState.PATIENT,
+        )
+        envelope.payload["safety"] = veredicto.action.value
+        return TutorResponse(content=texto, envelope=envelope)
+
     async def answer(
         self,
         document_id: Optional[UUID],
@@ -257,6 +289,9 @@ class ChatTutorService:
         Con document_id y ownership → motor pedagógico completo (decisión + emoción).
         Sin documento → modo libre (LlmGate, envelope genérico).
         """
+        cuidado = await self._respuesta_de_seguridad(question, document_id)
+        if cuidado is not None:
+            return cuidado
         intention = self._intent.detect(question)
         profile = None
         if self._profile_repo is not None:
@@ -349,6 +384,11 @@ class ChatTutorService:
         """
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para streaming")
+        cuidado = await self._respuesta_de_seguridad(question, document_id)
+        if cuidado is not None:
+            yield cuidado.content, None
+            yield cuidado.content, cuidado.envelope
+            return
         intention = self._intent.detect(question)
         extra: dict = {
             **_intent_payload(intention),

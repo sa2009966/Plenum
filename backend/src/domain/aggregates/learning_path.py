@@ -22,6 +22,16 @@ ModuleStatus = Literal["locked", "available", "in_progress", "completed", "assum
 MASTERY_COMPLETED = 0.7
 
 
+#: Tramos de una ruta, en orden (ADR-037). Son los mismos niveles de la nivelación:
+#: superar la nivelación del tema es la prueba de paso que abre el tramo siguiente.
+TIERS = ("basico", "intermedio", "avanzado")
+
+
+def tier_index(tier: str | None) -> int:
+    """Posición del tramo; -1 si no es uno conocido."""
+    return TIERS.index(tier) if tier in TIERS else -1
+
+
 class ModuleKind(str, Enum):
     #: Lo que el estudiante vino a aprender: siempre se enseña.
     CONTENT = "content"
@@ -99,6 +109,8 @@ class LearningModule:
     mastery: float = 0.0
     position: int = 0
     kind: ModuleKind = ModuleKind.CONTENT
+    #: Tramo al que pertenece (ADR-037). Vacío en rutas manuales.
+    tier: str = ""
 
 
 @dataclass
@@ -130,6 +142,9 @@ class LearningPathAggregate:
     #: Temas para seguir que propuso el modelo (temas fuera del grafo), guardados
     #: para no pedirlos dos veces (ADR-034).
     next_topics: list[str] = field(default_factory=list)
+    #: Tramos abiertos, en orden (ADR-037). La ruta crece un tramo cada vez que el
+    #: estudiante supera la prueba de paso; antes se quedaba en su temario inicial.
+    tiers: list[str] = field(default_factory=list)
 
     @staticmethod
     def create_for_topic(
@@ -137,6 +152,7 @@ class LearningPathAggregate:
         topic: str,
         label: str,
         modules: list[dict],
+        tier: str | None = None,
     ) -> "LearningPathAggregate":
         """Ruta de un tema tras la nivelación. `modules` ya viene ordenado, bases primero.
 
@@ -161,12 +177,80 @@ class LearningPathAggregate:
                     status="locked" if prereqs else "available",
                     position=len(path.modules),
                     kind=ModuleKind(m.get("kind", ModuleKind.CONTENT)),
+                    tier=tier or "",
                 )
             )
             vistos.add(concept)
         if not path.modules:
             raise ValueError("La ruta necesita al menos un concepto.")
+        if tier:
+            path.start_tier(tier)
         return path
+
+    # --- Tramos (ADR-037) ----------------------------------------------------------
+
+    @property
+    def current_tier(self) -> str | None:
+        return self.tiers[-1] if self.tiers else None
+
+    @property
+    def next_tier(self) -> str | None:
+        """El tramo que abriría la próxima prueba de paso; None si ya está en el último."""
+        if not self.topic or not self.tiers:
+            return None
+        i = tier_index(self.current_tier)
+        return TIERS[i + 1] if 0 <= i < len(TIERS) - 1 else None
+
+    def start_tier(self, tier: str) -> None:
+        """Fija el primer tramo y le asigna los módulos que aún no tienen uno.
+
+        Sirve para una ruta nueva y para las anteriores a los tramos, que se toman
+        como el tramo básico: es el temario que tenían.
+        """
+        if tier_index(tier) < 0:
+            raise ValueError(f"Tramo desconocido: {tier}")
+        if self.tiers:
+            return
+        self.tiers = [tier]
+        for m in self.modules:
+            m.tier = m.tier or tier
+        self._touch()
+
+    def open_tier(self, tier: str, modules: list[dict]) -> int:
+        """Añade el temario de un tramo superior. Devuelve cuántos módulos entraron.
+
+        No hace nada si el tramo no está por encima del actual, o si ningún módulo
+        es nuevo (entonces el tramo no se abre: se volverá a intentar).
+        Los prerrequisitos solo pueden apuntar a conceptos que ya están en la ruta.
+        """
+        if not self.tiers or tier_index(tier) <= tier_index(self.current_tier):
+            return 0
+        vistos = {m.concept for m in self.modules}
+        nuevos: list[LearningModule] = []
+        for m in modules:
+            concept = canonicalize_concept(m.get("concept", ""))
+            if not concept or concept in vistos:
+                continue
+            prereqs = [p for p in (canonicalize_concept(x) for x in m.get("prerequisites", [])) if p in vistos]
+            nuevos.append(
+                LearningModule(
+                    title=(m.get("title") or concept).strip()[:200],
+                    concept=concept,
+                    difficulty=Difficulty(m.get("difficulty", "medium")),
+                    prerequisites=prereqs,
+                    status="locked" if prereqs else "available",
+                    position=len(self.modules) + len(nuevos),
+                    kind=ModuleKind(m.get("kind", ModuleKind.CONTENT)),
+                    tier=tier,
+                )
+            )
+            vistos.add(concept)
+        if not nuevos:
+            return 0
+        self.modules.extend(nuevos)
+        self.tiers.append(tier)
+        self._touch()
+        return len(nuevos)
 
     def module(self, concept: str) -> LearningModule | None:
         return self._module_by_concept(concept)

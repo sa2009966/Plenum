@@ -23,6 +23,38 @@ endpoint para escribir el progreso de un módulo.
 | `GET` | `/learning/paths/{path_id}` | Una ruta, con progreso proyectado |
 | `DELETE` | `/learning/paths/{path_id}` | Borra la ruta (`204`) |
 
+## Tramos: la ruta crece con el nivel ([ADR-037](adr/ADR-037-rutas-por-tramos.md))
+
+Una ruta de tema (`from-topic`) tiene **tramos**: `basico` → `intermedio` → `avanzado`. Cada
+módulo trae su `tier`, y la ruta trae `tiers` (los tramos abiertos) y `next_tier` (el tramo que
+abre la próxima prueba de paso, o `null` en avanzado o en rutas manuales).
+
+- `teaching.phase == "completed"` **con `next_tier` no nulo no es el final**: terminó el tramo.
+  Muestra "Haz la prueba de paso", que es la nivelación del tema (`POST /quizzes/diagnostic`).
+- Si la prueba sube el nivel, la siguiente llamada a `POST /learning/paths/from-topic` o a
+  `/paths/{id}/lesson` **abre el tramo**: módulos nuevos al final, y la clase sigue en el primero.
+- `progress` cuenta toda la ruta. Para el progreso del tramo, filtra los módulos por `tier`.
+
+Captura (tests e2e, modelo de prueba): tramo básico completado →
+
+```json
+{"tiers": ["basico"], "next_tier": "intermedio",
+ "teaching": {"phase": "completed",
+   "reason": "Completaste el tramo básico. Haz la prueba de paso (la nivelación de «Python») para abrir el tramo intermedio."}}
+```
+
+…prueba de paso superada → `POST /paths/{id}/lesson`:
+
+```json
+{"tiers": ["basico", "intermedio"], "next_tier": "avanzado",
+ "modules": [
+   {"concept": "variables", "title": "Variables", "tier": "basico", "position": 0, "status": "completed"},
+   {"concept": "bucles", "title": "Bucles", "tier": "basico", "position": 1, "status": "completed"},
+   {"concept": "patrones intermedio", "title": "Patrones intermedio", "tier": "intermedio", "position": 2, "status": "available"},
+   {"concept": "diseno intermedio", "title": "Diseño intermedio", "tier": "intermedio", "position": 3, "status": "locked"}],
+ "teaching": {"phase": "check", "concept": "patrones intermedio"}}
+```
+
 ## Crear
 
 ```http
