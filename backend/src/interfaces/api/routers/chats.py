@@ -255,6 +255,7 @@ async def stream_message(
             yield _sse("thinking", {})
             pieces: list[str] = []
             envelope = None
+            final = ""
             async for token, env in tutor.answer_stream(
                 document_id=chat.document_id,
                 question=question,
@@ -263,11 +264,14 @@ async def stream_message(
             ):
                 if env is not None:
                     envelope = env
+                    final = token
                 else:
                     pieces.append(token)
                     yield _sse("token", {"content": token})
 
-            answer = "".join(pieces)
+            # Se guarda el texto con el que cerró el servicio, no los tokens crudos: ahí
+            # ya se quitaron los esquemas que no se pueden pintar (ADR-048).
+            answer = final if envelope is not None else "".join(pieces)
             metadata = (
                 envelope.to_dict()
                 if envelope

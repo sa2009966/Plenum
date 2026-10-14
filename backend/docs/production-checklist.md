@@ -7,9 +7,9 @@ Marca cada ítem PASS/FAIL **en el VPS o máquina de equipo** antes de exponer e
 - Fail-fast de `APP_ENV=production`: `tests/unit/test_runtime_settings.py` (mongodb, outbox, redis cache+rate, `REDIS_URL`, `ENABLE_DOCS=false`, `RATE_LIMIT_ENABLED=true`, CORS no vacío y sin `*`).
 - Contratos HTTP 401/403/404/409/413/422/429/502/503: `tests/api/test_http_contracts.py` y `tests/api/test_auth_and_ownership.py`.
 - Compose local ya usa la forma de producción (mongo sin puerto público, redis, outbox, docs off). Ver [`smoke-e2e-compose.md`](./smoke-e2e-compose.md).
-- Render (`deploy-render.md`) es **demo efímera** hasta completar la fase 1 del
-  [plan de corrección](4_PLAN_CORRECCION.md) (Atlas + Upstash). Aun con datos persistentes, el plan
-  free duerme el servicio: no marcar esta checklist como PASS por un deploy en Render free.
+- Render (`deploy-render.md`) ya es persistente (Atlas + Upstash + R2) pero corre con
+  `APP_ENV=development` y bus en memoria, y el plan free duerme el servicio: no marcar esta checklist
+  como PASS por un deploy en Render free.
 - Entrega del outbox: reclamación atómica con lease, verificada en
   `tests/unit/test_outbox_tutor_question.py` ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)).
 

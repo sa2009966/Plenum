@@ -14,6 +14,8 @@ AVISO_FORMULA = "la fórmula que ves en pantalla"
 AVISO_ESQUEMA = "Te dejo un esquema en pantalla."
 
 _BLOQUE_CODIGO = re.compile(r"```.*?(?:```|$)", re.S)
+#: Un esquema Mermaid (ADR-048) es un dibujo, no código: la voz avisa de eso.
+_BLOQUE_ESQUEMA = re.compile(r"```[ \t]*mermaid\b.*?(?:```|$)", re.S | re.I)
 _FORMULA_BLOQUE = re.compile(r"\$\$.*?\$\$|\\\[.*?\\\]", re.S)
 _FORMULA_LINEA = re.compile(r"\\\((.*?)\\\)|\$(?!\s)([^$\n]{1,200}?)\$")
 _ENLACE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
@@ -72,7 +74,8 @@ def _formula_en_linea(m: re.Match) -> str:
 def speakable_text(texto: str) -> str:
     if not texto:
         return ""
-    t = _BLOQUE_CODIGO.sub(f"\n{AVISO_CODIGO}\n", texto)
+    t = _BLOQUE_ESQUEMA.sub(f"\n{AVISO_ESQUEMA}\n", texto)
+    t = _BLOQUE_CODIGO.sub(f"\n{AVISO_CODIGO}\n", t)
     t = _FORMULA_BLOQUE.sub(f" {AVISO_FORMULA} ", t)
     t = _FORMULA_LINEA.sub(_formula_en_linea, t)
 

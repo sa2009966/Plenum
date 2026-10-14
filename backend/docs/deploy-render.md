@@ -1,16 +1,26 @@
 # Deploy en Render
 
-> **Estado del servicio público hoy (2026-09-18):** corre como **demo efímera**. `/ready` devuelve
-> `mongodb: "skipped"` y `redis: "skipped"`, es decir `DB_PROVIDER=memory`: usuarios, documentos,
-> chats y **perfiles cognitivos se borran** en cada reinicio o sleep del plan free.
+> **Estado del servicio público hoy (14-oct-2026),** leído con la API de Render (sin secretos):
 >
-> El blueprint [`render.yaml`](../../render.yaml) ya declara la forma persistente
-> (Atlas + Upstash); el servicio vivo **no la tiene aplicada**. Cerrar esa brecha es la
-> [fase 1 del plan de corrección](4_PLAN_CORRECCION.md).
+> - **Persistente:** `DB_PROVIDER=mongodb` (Atlas), `CACHE_BACKEND=redis` (Upstash), `ORIGINAL_STORAGE=r2`.
+>   Es el escalón «Persistente» de la tabla de abajo; la fase 1 está cerrada.
+> - **Sigue en `APP_ENV=development` y `EVENT_BUS_BACKEND=memory`:** las comprobaciones de
+>   producción de `validate_security_settings` no se ejecutan, y un evento en vuelo se pierde si el
+>   proceso se reinicia. Es el escalón que falta (fase 3).
+> - **Rama:** el servicio vivo sigue `feature/backend`. [ADR-047](adr/ADR-047-render-despliega-main.md)
+>   decide pasar a `main`; el cambio en `render.yaml` no mueve el servicio existente: hay que
+>   cambiarlo en Settings → Branch.
+> - **CORS:** `CORS_ORIGINS` en Render es `["https://laria-frontend.vercel.app","http://localhost:4321"]`.
+>   El Blueprint no sincronizó el `http://localhost:3000` de `render.yaml`: para desarrollar el
+>   frontend contra producción hay que añadirlo en Environment.
+> - **Plan free y sueño:** el servicio se duerme sin tráfico. El workflow `keep-warm` de GitHub
+>   debería despertarlo cada 10 min, pero GitHub lo ejecuta cada 4–5 h. El 14-oct, durante una caída
+>   general de Render, el servicio no podía despertar (`503`, cabecera
+>   `x-render-routing: hibernate-wake-error`) y volvió con un restart por API.
 
 ## Los dos escalones
 
-| | Demo efímera (lo que hay) | Persistente (fase 1) | Producción (fase 3) |
+| | Demo efímera (hasta sep-2026) | Persistente (**hoy**) | Producción (fase 3) |
 |---|---|---|---|
 | `APP_ENV` | `development` | `development` | `production` |
 | `DB_PROVIDER` | `memory` | `mongodb` (Atlas) | `mongodb` |

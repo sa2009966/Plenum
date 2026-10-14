@@ -12,7 +12,7 @@ No es un chatbot con historial: responder bien no se toma como prueba de compren
 
 - **El dominio decide; el modelo redacta.** `TeachingPolicy`, `PedagogicalEngine` y `TutorPolicy` eligen qué concepto, qué modo y qué dificultad. El LLM solo escribe lo que se le pide.
 - **Hexagonal.** Los routers FastAPI llaman a servicios de aplicación. El dominio no lee configuración ni hace I/O. Los adaptadores (MongoDB Atlas, Redis/Upstash, Cloudflare R2, OpenAI, Clerk) están detrás de puertos.
-- **El perfil tiene un solo escritor.** Quizzes y turnos publican eventos en un outbox de Mongo, y el *projector* de evidencia es el único que escribe el perfil.
+- **El perfil tiene un solo escritor.** Quizzes y turnos publican eventos, y el *projector* de evidencia es el único que escribe el perfil (ver [Cómo llega la evidencia](#cómo-llega-la-evidencia-al-perfil)).
 - **Despliegue:** la API corre en Render (rama `main`) y el cliente web en Vercel.
 
 ## Un turno del chat
@@ -42,10 +42,44 @@ No es un chatbot con historial: responder bien no se toma como prueba de compren
   - una reformulación;
   - remediar una base, solo con evidencia de que falta (ADR-028).
 - **Tramos.** La ruta tiene tramos `básico → intermedio → avanzado`, de 5 a 8 módulos cada uno (ADR-037).
-  - Al terminar un tramo, la **prueba de paso** es la nivelación del mismo tema.
-  - Si sube de nivel, la ruta añade el temario del tramo nuevo, sin repetir lo visto, y la clase continúa.
+  - Al terminar un tramo, la **prueba de paso** sale de la propia ruta: pregunta por los módulos estudiados, sin pedir el tema ni crear otra ruta (ADR-042).
+  - Se responde una sola vez; reenviarla da 409 (ADR-043). Si no la supera, lo flojo se repasa y puede pedir otra.
+  - Si sube de nivel, la misma ruta añade el temario del tramo nuevo, sin repetir lo visto, y la clase continúa.
+  - La ronda avanzada exige su reparto (3 medias y 5 difíciles) y sus difíciles piden razonar sobre un caso, no recordar una definición (ADR-045).
 - **Temario investigado.** Los tramos intermedio y avanzado se investigan en internet: el temario de cada módulo lleva ideas clave y fuentes reales, verificadas a partir de las citas de la búsqueda (ADR-039).
 - **Repaso.** Si el olvido baja un concepto ya superado, la ruta se reabre para repasarlo (ADR-032).
+- **Borrar una clase** quita la ruta, no lo aprendido: si se vuelve a crear la del mismo tema, no repite la nivelación.
+
+## Cómo llega la evidencia al perfil
+
+![Flujo de la evidencia: observación, evento, projector, perfil y decisión](docs/diagramas/laria-evidencia.png)
+
+> Interactivo: [`docs/diagramas/laria-evidencia.html`](docs/diagramas/laria-evidencia.html)
+
+- **Dos fuentes:** un quiz respondido (ítems calificados) y un turno del tutor (lo que dijo el estudiante). El ítem calificado pesa el doble.
+- **Un solo escritor:** el projector aplica cada evento una vez y es lo único que guarda el perfil. La clase y el chat lo leen para decidir.
+- **Reintentar no es evidencia:** tras el primer intento se ven las correctas, así que repetir el quiz cuenta como práctica (ADR-044).
+- **El bus, hoy:** en producción los eventos van por el bus en memoria (`EVENT_BUS_BACKEND=memory`). Si el proceso se reinicia en mitad de un evento, ese evento se pierde. El outbox en Mongo está implementado y probado, pero no activado.
+
+## Dónde viven los datos
+
+![Almacenes de LARIA: MongoDB Atlas, GridFS, Cloudflare R2 y Redis](docs/diagramas/laria-datos.png)
+
+> Interactivo: [`docs/diagramas/laria-datos.html`](docs/diagramas/laria-datos.html)
+
+- **MongoDB Atlas** guarda cuentas, perfiles, rutas, quizzes, chats y el texto extraído de cada documento (GridFS).
+- **Cloudflare R2** guarda los archivos originales; **Redis** solo caché con caducidad y los contadores del límite de peticiones.
+- **Volumen (14-oct-2026):** 2.4 MB de los 512 MB del plan gratuito de Atlas, con 46 usuarios. Lo que más crece son los chats y el texto de los documentos. Cálculo y techo por chat en [`backend/docs/mongodb-schema.md`](backend/docs/mongodb-schema.md#volumen-y-capacidad); para medirlo: `python backend/scripts/mongo_volumen.py`.
+
+## Borrar una cuenta
+
+![Secuencia del borrado de una cuenta de Clerk](docs/diagramas/laria-borrar-cuenta.png)
+
+> Interactivo: [`docs/diagramas/laria-borrar-cuenta.html`](docs/diagramas/laria-borrar-cuenta.html)
+
+- **Un token robado no basta:** las cuentas de Clerk necesitan una verificación de identidad de hace 10 minutos o menos; las propias, la contraseña (ADR-041).
+- **Clerk va primero:** si la sesión siguiera viva, la siguiente petición crearía un usuario nuevo vacío. Si Clerk falla, responde 503 y no se borra nada.
+- **La cuenta, al final:** si algo falla a mitad, repetir el borrado es seguro.
 
 ## Qué hay hoy
 
@@ -53,18 +87,20 @@ No es un chatbot con historial: responder bien no se toma como prueba de compren
 |-----------|--------|
 | Cuentas propias, Google y Clerk; recurso ajeno → 404 | En producción |
 | Documentos (PDF, Word, Excel, PowerPoint, texto, código), análisis por secciones y quizzes sobre el material | En producción |
-| Chat con o sin documento, streaming, memoria de la conversación y voz (6 voces) | En producción |
+| Chat con o sin documento, streaming, memoria de la conversación y voz (6 voces); mensajes de hasta 20 000 caracteres | En producción |
 | Nivelación calibrada por rondas y práctica por tema | En producción |
-| Clase guiada con rutas por tramos y temario investigado con fuentes | En producción |
+| Clase guiada con rutas por tramos, prueba de paso de la ruta y temario investigado con fuentes | En producción |
+| Borrar una clase sin perder lo aprendido | En producción (botón en el PR #63 del frontend) |
 | Repaso espaciado, metas y tiempo de estudio, sugerencias de qué seguir | En producción |
 | Filtro de temas y mensajes; apoyo ante señales de autolesión | En producción |
 | Tutorial de bienvenida guardado en la cuenta | En producción |
-| Borrado de la cuenta y de todos sus datos, también en Clerk (ADR-041) | En la rama, pendiente de desplegar |
+| Borrado de la cuenta y de todos sus datos, también en Clerk (ADR-041) | En producción |
 
 **Límites honestos:**
 - **Sin RAG ni embeddings:** el contexto sale del documento del estudiante, analizado por secciones.
 - **Sin LMS ni organizaciones.**
 - **Solo español:** el tutor está escrito y probado en español. El plan para responder en el idioma del estudiante está pendiente.
+- **Bus de eventos en memoria** en producción: ver [Cómo llega la evidencia](#cómo-llega-la-evidencia-al-perfil).
 - **Embodiment desactivado por defecto:** la presencia física y los sensores siguen detrás de puertos. La voz del tutor sí funciona.
 
 Detalle de capas, agregados y contratos: [`backend/docs/architecture.md`](backend/docs/architecture.md), [`backend/docs/endpoints.md`](backend/docs/endpoints.md) y las decisiones en [`backend/docs/adr/`](backend/docs/adr/).
