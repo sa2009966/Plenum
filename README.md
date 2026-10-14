@@ -13,7 +13,7 @@ No es un chatbot con historial: responder bien no se toma como prueba de compren
 - **El dominio decide; el modelo redacta.** `TeachingPolicy`, `PedagogicalEngine` y `TutorPolicy` eligen qué concepto, qué modo y qué dificultad. El LLM solo escribe lo que se le pide.
 - **Hexagonal.** Los routers FastAPI llaman a servicios de aplicación. El dominio no lee configuración ni hace I/O. Los adaptadores (MongoDB Atlas, Redis/Upstash, Cloudflare R2, OpenAI, Clerk) están detrás de puertos.
 - **El perfil tiene un solo escritor.** Quizzes y turnos publican eventos en un outbox de Mongo, y el *projector* de evidencia es el único que escribe el perfil.
-- **Despliegue:** la API corre en Render (rama `feature/backend`) y el cliente web en Vercel.
+- **Despliegue:** la API corre en Render (rama `main`) y el cliente web en Vercel.
 
 ## Un turno del chat
 
@@ -127,4 +127,4 @@ feature/frontend  → develop
 develop           → main
 ```
 
-`develop` integra y `main` recibe las releases. `feature/backend` se despliega sola en Render. Convención y comandos: [`CICD.md`](CICD.md).
+`develop` integra y `main` recibe las releases. Render despliega `main`. Convención y comandos: [`CICD.md`](CICD.md).

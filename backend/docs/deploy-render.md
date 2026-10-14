@@ -94,14 +94,14 @@ turno de cada sesión parece una plataforma caída.
 
 | Archivo | Rol |
 |---------|-----|
-| [`render.yaml`](../../render.yaml) | Blueprint del servicio `laria-backend` (rama `feature/backend`, auto-deploy) |
+| [`render.yaml`](../../render.yaml) | Blueprint del servicio `laria-backend` (rama `main`, auto-deploy) |
 | [`Dockerfile`](../Dockerfile) | Imagen; escucha `$PORT` (Render) o `8000` |
 | [`scripts/verify_deployment.py`](../scripts/verify_deployment.py) | Verificación externa del despliegue |
 | [`scripts/deploy-render-api.sh`](../scripts/deploy-render-api.sh) | Deploy por API con `RENDER_API_KEY` |
 
 ## Alta desde cero (Blueprint)
 
-1. Render Dashboard → **New** → **Blueprint** → repo `sa2009966/LARIA-IA`, rama `feature/backend`,
+1. Render Dashboard → **New** → **Blueprint** → repo `sa2009966/LARIA-IA`, rama `main`,
    path `render.yaml`.
 2. Rellena los `sync: false`: `OPENAI_API_KEY`, `MONGODB_URL`, `REDIS_URL`.
 3. Ajusta `CORS_ORIGINS` a los orígenes reales del front.
@@ -110,7 +110,7 @@ turno de cada sesión parece una plataforma caída.
 
 Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · Start
 `sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'` · Health Check `/health` · Branch
-`feature/backend` (auto-deploy: un push actualiza el público).
+`main` (auto-deploy: un push a `main` actualiza el público).
 
 ## Notas
 
@@ -122,8 +122,8 @@ Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · S
   `r2` y falta alguna: mejor no arrancar que perder el archivo del alumno en el primer upload.
   Verificación: `python backend/scripts/check_r2.py` (escribe, lee, borra; no imprime secretos).
 - No subas `.env` ni claves a git: solo variables en el dashboard.
-- El hook `.githooks/pre-push` exige pytest en verde antes de empujar a `feature/backend`, que es la
-  rama que despliega. Instalarlo en cada clon:
+- El hook `.githooks/pre-push` exige pytest en verde antes de cualquier empuje. La rama que
+  despliega es `main`. Instalarlo en cada clon:
   ```bash
   ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
   ```
