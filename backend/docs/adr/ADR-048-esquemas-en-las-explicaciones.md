@@ -32,8 +32,12 @@
 - **Qué llega al cliente (`visuals.extract_diagrams`, en la salida del chat y de `/lesson`):**
   - el esquema válido se queda en su sitio dentro del markdown y se anuncia en
     `payload.visuals` (chat) o en `visuals` (lección): `{kind: "mermaid", diagram, source}`;
+  - **tipos que acepta el validador (`ALLOWED_DIAGRAMS`):** los cinco que pide el prompt más sus
+    variantes y `classDiagram`: `flowchart`/`graph`, `sequenceDiagram`, `stateDiagram-v2`/`stateDiagram`,
+    `mindmap`, `timeline` y `classDiagram`. El prompt no pide `classDiagram`, pero si el modelo
+    lo escribe para explicar clases de un lenguaje, se deja pasar;
   - **se quitan:**
-    - los tipos no permitidos;
+    - los demás tipos (gantt, pie, quadrant…);
     - `%%` (directivas), `click`/`call`/`href`, HTML (salvo `<br>`) y `style`/`classDef`;
     - lo que pase de 2000 caracteres o 40 líneas;
     - un segundo esquema;
