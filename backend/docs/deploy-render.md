@@ -1,16 +1,25 @@
 # Deploy en Render
 
-> **Estado del servicio público hoy (2026-09-18):** corre como **demo efímera**. `/ready` devuelve
-> `mongodb: "skipped"` y `redis: "skipped"`, es decir `DB_PROVIDER=memory`: usuarios, documentos,
-> chats y **perfiles cognitivos se borran** en cada reinicio o sleep del plan free.
+> **Estado del servicio público hoy (14-oct-2026),** leído con la API de Render (sin secretos):
 >
-> El blueprint [`render.yaml`](../../render.yaml) ya declara la forma persistente
-> (Atlas + Upstash); el servicio vivo **no la tiene aplicada**. Cerrar esa brecha es la
-> [fase 1 del plan de corrección](4_PLAN_CORRECCION.md).
+> - **Persistente:** `DB_PROVIDER=mongodb` (Atlas), `CACHE_BACKEND=redis` (Upstash), `ORIGINAL_STORAGE=r2`.
+>   Es el escalón «Persistente» de la tabla de abajo; la fase 1 está cerrada.
+> - **`APP_ENV=production` y `EVENT_BUS_BACKEND=outbox` desde el 19-oct-2026:** el arranque
+>   ejecuta las comprobaciones de producción y un evento en vuelo sobrevive a un reinicio (fase 3).
+> - **Rama:** el servicio vivo sigue `feature/backend`. [ADR-047](adr/ADR-047-render-despliega-main.md)
+>   decide pasar a `main`; el cambio en `render.yaml` no mueve el servicio existente: hay que
+>   cambiarlo en Settings → Branch.
+> - **CORS:** `CORS_ORIGINS` en Render es `["https://laria-frontend.vercel.app","http://localhost:4321"]`.
+>   El Blueprint no sincronizó el `http://localhost:3000` de `render.yaml`: para desarrollar el
+>   frontend contra producción hay que añadirlo en Environment.
+> - **Plan free y sueño:** el servicio se duerme sin tráfico. El workflow `keep-warm` de GitHub
+>   debería despertarlo cada 10 min, pero GitHub lo ejecuta cada 4–5 h. El 14-oct, durante una caída
+>   general de Render, el servicio no podía despertar (`503`, cabecera
+>   `x-render-routing: hibernate-wake-error`) y volvió con un restart por API.
 
 ## Los dos escalones
 
-| | Demo efímera (lo que hay) | Persistente (fase 1) | Producción (fase 3) |
+| | Demo efímera (hasta sep-2026) | Persistente (**hoy**) | Producción (fase 3) |
 |---|---|---|---|
 | `APP_ENV` | `development` | `development` | `production` |
 | `DB_PROVIDER` | `memory` | `mongodb` (Atlas) | `mongodb` |
@@ -94,14 +103,14 @@ turno de cada sesión parece una plataforma caída.
 
 | Archivo | Rol |
 |---------|-----|
-| [`render.yaml`](../../render.yaml) | Blueprint del servicio `laria-backend` (rama `feature/backend`, auto-deploy) |
+| [`render.yaml`](../../render.yaml) | Blueprint del servicio `laria-backend` (rama `main`, auto-deploy) |
 | [`Dockerfile`](../Dockerfile) | Imagen; escucha `$PORT` (Render) o `8000` |
 | [`scripts/verify_deployment.py`](../scripts/verify_deployment.py) | Verificación externa del despliegue |
 | [`scripts/deploy-render-api.sh`](../scripts/deploy-render-api.sh) | Deploy por API con `RENDER_API_KEY` |
 
 ## Alta desde cero (Blueprint)
 
-1. Render Dashboard → **New** → **Blueprint** → repo `sa2009966/LARIA-IA`, rama `feature/backend`,
+1. Render Dashboard → **New** → **Blueprint** → repo `sa2009966/LARIA-IA`, rama `main`,
    path `render.yaml`.
 2. Rellena los `sync: false`: `OPENAI_API_KEY`, `MONGODB_URL`, `REDIS_URL`.
 3. Ajusta `CORS_ORIGINS` a los orígenes reales del front.
@@ -110,7 +119,7 @@ turno de cada sesión parece una plataforma caída.
 
 Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · Start
 `sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'` · Health Check `/health` · Branch
-`feature/backend` (auto-deploy: un push actualiza el público).
+`main` (auto-deploy: un push a `main` actualiza el público).
 
 ## Notas
 
@@ -122,8 +131,8 @@ Ajustes del servicio: Root Directory `backend` · Dockerfile `./Dockerfile` · S
   `r2` y falta alguna: mejor no arrancar que perder el archivo del alumno en el primer upload.
   Verificación: `python backend/scripts/check_r2.py` (escribe, lee, borra; no imprime secretos).
 - No subas `.env` ni claves a git: solo variables en el dashboard.
-- El hook `.githooks/pre-push` exige pytest en verde antes de empujar a `feature/backend`, que es la
-  rama que despliega. Instalarlo en cada clon:
+- El hook `.githooks/pre-push` exige pytest en verde antes de cualquier empuje. La rama que
+  despliega es `main`. Instalarlo en cada clon:
   ```bash
   ln -sfn ../../.githooks/pre-push .git/hooks/pre-push
   ```

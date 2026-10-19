@@ -11,7 +11,7 @@ services:
     runtime: docker
     plan: free
     region: oregon
-    branch: feature/backend
+    branch: main
     dockerfilePath: ./Dockerfile
     dockerCommand: "sh -c 'uvicorn src.main:app --host 0.0.0.0 --port $PORT'"
     healthCheckPath: /health
@@ -19,10 +19,10 @@ services:
     envVars:
       - key: LARIA_DEPLOY_TIER
         value: atlas
-      # Fase 3 del plan de corrección: pasar a `production` (exige, por
-      # fail-fast, EVENT_BUS_BACKEND=outbox, redis en cache+rate y docs off).
+      # Producción desde el 19-oct-2026: el arranque exige (fail-fast)
+      # EVENT_BUS_BACKEND=outbox, redis en cache+rate y docs off.
       - key: APP_ENV
-        value: development
+        value: production
       - key: DB_PROVIDER
         value: mongodb
       - key: MONGODB_URL
@@ -34,10 +34,10 @@ services:
         value: "10000"
       - key: RATE_LIMIT_BACKEND
         value: redis
-      # Fase 3: `outbox`. El worker reclama con lease (ADR-010), así que ya es
-      # seguro con más de una réplica.
+      # Outbox: la evidencia sobrevive a reinicios. El worker reclama con lease
+      # (ADR-010), así que es seguro con más de una réplica.
       - key: EVENT_BUS_BACKEND
-        value: memory
+        value: outbox
       - key: CACHE_BACKEND
         value: redis
       - key: REDIS_URL

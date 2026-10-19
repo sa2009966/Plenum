@@ -5,6 +5,10 @@
 >
 > Verificación ejecutable: [`scripts/smoke_frontend_contract.py`](../scripts/smoke_frontend_contract.py).
 
+> **Al día a 14-oct-2026.** Las secciones de abajo cuentan cómo se integró el cliente en
+> septiembre; lo añadido desde entonces está en [Novedades desde octubre](#novedades-desde-octubre)
+> y el catálogo completo en [endpoints.md](endpoints.md).
+
 ## Por qué esta guía
 
 El cliente actual llama a OpenAI por su cuenta (`app/api/chat`) y **genera y califica los quizzes**
@@ -380,3 +384,20 @@ rutas de una clase son las que traen `topic`; las creadas a mano no.
 | **Completadas** | `phase == "completed"` | Al entrar, `/lesson` puede reabrirla si toca un **repaso** (variante `review`, con `reason`) |
 
 Ordena por `updated_at` descendente.
+
+
+## Novedades desde octubre
+
+Cada punto enlaza al contrato con sus payloads reales; aquí solo va qué cambia para el cliente.
+
+| Qué | Contrato | Para el cliente |
+|-----|----------|-----------------|
+| Prueba de paso de la ruta | `POST /learning/paths/{id}/passage-test` ([ADR-042](adr/ADR-042-prueba-de-paso-de-la-ruta.md)) | Ofrecerla cuando `teaching.phase` es `completed` y hay `next_tier`. No mandar a la nivelación inicial ni pedir el tema |
+| Una sola respuesta por nivelación | **409** al reenviar ([ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md)) | Mostrar el resultado guardado y ofrecer una ronda nueva |
+| Mensajes del chat | `role` solo `user`/`system`; `content` hasta 20 000 caracteres ([ADR-046](adr/ADR-046-tope-del-chat-20000.md)) | Contador en la caja; nunca escribir como `assistant` |
+| Reintentar un quiz de práctica | Permitido; no cuenta como evidencia ([ADR-044](adr/ADR-044-reintentar-no-es-evidencia.md)) | Nada: cada quiz nuevo es un quiz nuevo |
+| Borrar una clase | `DELETE /learning/paths/{id}` → 204 | Confirmar antes; lo aprendido se conserva |
+| Borrar una cuenta de Clerk | `DELETE /users/me` con `fva` ≤ 10 min ([ADR-041](adr/ADR-041-borrar-cuentas-de-clerk.md)) | Ante 403 `reverification_required`, pedir la reverificación de Clerk y repetir; ante 503, reintentar más tarde |
+| Tutorial de bienvenida | `POST /users/me/onboarding` ([ADR-038](adr/ADR-038-tutorial-de-bienvenida.md)) | Mostrarlo si `GET /users/me` trae `onboarding_completed: false` |
+| Tema bloqueado | **422** `reason: "unsafe_topic"` ([ADR-036](adr/ADR-036-filtro-de-temas.md)) | Mostrar el `detail` y proponer otro tema |
+| Metas y tiempo de estudio | `/learning/me/study-goals`, `/learning/me/study-time` | Avisar del tiempo cada minuto desde la clase, con la zona horaria IANA |

@@ -57,8 +57,8 @@ async def test_un_token_valido_da_la_sesion_con_la_edad_del_factor():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("azp", [None, "http://localhost:4321", "https://laria-pr-12-x.vercel.app"])
-async def test_origenes_permitidos_o_sin_azp(azp):
+@pytest.mark.parametrize("azp", ["http://localhost:4321", "https://laria-pr-12-x.vercel.app"])
+async def test_origenes_permitidos(azp):
     assert (await _v().verify(_tok(azp=azp))).user_id == "user_1"
 
 
@@ -67,6 +67,8 @@ async def test_origenes_permitidos_o_sin_azp(azp):
     "token",
     [
         pytest.param(_tok(azp="https://evil.example"), id="emitido para otro sitio"),
+        # Antes se aceptaba (ADR-027); un token sin origen no sale del navegador (ADR-050).
+        pytest.param(_tok(azp=None), id="sin azp"),
         pytest.param(_tok(iss="https://otra.clerk.accounts.dev"), id="otra instancia"),
         pytest.param(_tok(exp=int(time.time()) - 120), id="caducado"),
         pytest.param(_tok(clave=OTRA), id="firma ajena"),

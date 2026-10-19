@@ -92,6 +92,15 @@ class PathFromTopicRequest(BaseModel):
     topic: Annotated[str, Field(min_length=2, max_length=120)]
 
 
+class VisualResponse(BaseModel):
+    """Un esquema validado dentro de la respuesta (ADR-048)."""
+
+    kind: Literal["mermaid"] = "mermaid"
+    #: flowchart, sequenceDiagram, stateDiagram-v2, mindmap, timeline…
+    diagram: str
+    source: str
+
+
 class LessonResponse(BaseModel):
     """El paso actual de la clase: explicación + comprobación pendiente."""
 
@@ -100,6 +109,9 @@ class LessonResponse(BaseModel):
     markdown: str = ""
     #: Comprobación de 2 preguntas (sin respuestas). `null` si la ruta está completada.
     check: Optional[QuizPublicResponse] = None
+    #: Esquemas que trae `markdown`, ya validados (ADR-048). El cliente los pinta donde
+    #: aparece su bloque ```mermaid; la lista sirve para saber que hay alguno.
+    visuals: list[VisualResponse] = []
 
 
 class CheckAnswerRequest(BaseModel):

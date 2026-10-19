@@ -86,6 +86,7 @@ debe degradar con elegancia**: `payload.mode ?? null`, nunca `payload.mode.toUpp
 | `chunk_explanation` | solo con material | **Pista para el cliente**: conviene trocear la explicación al pintarla. El servidor no puede hacerlo por ti ([ADR-015](adr/ADR-015-ofrecer-practica-no-orquestarla.md)) |
 | `practice_before_advance` | solo con material | **Ya aplicado**: el tutor cierra ofreciendo un ejercicio. Es información para que puedas destacarlo, no una orden pendiente |
 | `celebrated_concept` | solo con `type: celebration` | Qué concepto se acaba de dominar |
+| `visuals` | solo si la respuesta trae un esquema | `[{kind: "mermaid", diagram, source}]`: el esquema que ya está **dentro de `content`** como bloque ```mermaid, validado por el servidor (tipos permitidos, sin directivas, enlaces ni HTML, uno por respuesta). Aparece si el estilo del estudiante es `visual` o si pidió un esquema ([ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md)) |
 | `explanation` | cuando hay adaptación activa | **Por qué el tutor habla así**, en una frase ([ADR-013](adr/ADR-013-decir-por-que.md)). Ausente si no hubo nada que adaptar o si la adaptación no se está aplicando: nunca se promete lo que no se hizo |
 
 ## Ejemplos reales
@@ -255,6 +256,10 @@ En el turno normal llega como mensaje `role: "system"`; en SSE, como evento `err
    escondas en un tooltip: es lo que convierte la adaptación en colaboración.
 7. **Tipos y emociones pueden crecer.** Trata valores desconocidos con un caso por defecto en vez de
    romper la vista.
+8. **Los esquemas se pintan desde `content` del envelope, no desde los tokens.** En streaming los
+   tokens llegan crudos; el `content` final ya solo trae esquemas válidos. Pinta ```mermaid con
+   `securityLevel: "strict"` y, mientras el bloque no se haya cerrado, muestra un aviso en vez del
+   código a medias ([ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md)).
 
 ## Qué puede cambiar y qué no
 

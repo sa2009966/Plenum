@@ -127,7 +127,7 @@ body={
   'name': 'laria-backend',
   'ownerId': '$OWNER_ID',
   'repo': 'https://github.com/sa2009966/LARIA-IA',
-  'branch': 'feature/backend',
+  'branch': 'main',
   'autoDeploy': 'yes',
   'rootDir': 'backend',
   'runtime': 'docker',

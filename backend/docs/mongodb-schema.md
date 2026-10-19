@@ -255,6 +255,88 @@ escritos antes de ese ADR lo tienen implícitamente en `0`.
 
 Activo cuando `EVENT_BUS_BACKEND=outbox`.
 
+### `learning_paths` (la clase: ruta por tramos)
+
+Una por tema y estudiante ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md), [ADR-037](adr/ADR-037-rutas-por-tramos.md)).
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `_id` | string (UUID) | |
+| `owner_id` | string (UUID) | Índice. Ajena → 404 |
+| `subject`, `title`, `topic` | string | `topic` canónico: con él se busca el nivel en el perfil |
+| `modules` | array | `concept`, `title`, `difficulty`, `prerequisites`, `tier`, `key_points`, `sources`. El `mastery` y el `status` **no** se guardan: se proyectan del perfil al leer ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)) |
+| `tiers` | array de string | Tramos abiertos: `basico`, `intermedio`, `avanzado` |
+| `teaching` | objeto | Estado de la clase: `phase`, `concept`, `variant`, `pending_check_quiz_id`, `lesson_markdown`, rachas y conceptos superados |
+| `next_topics` | array | Sugerencias de cómo seguir ([ADR-034](adr/ADR-034-como-seguir-tras-una-ruta.md)) |
+| `created_at`, `updated_at` | datetime | |
+
+Borrar una clase borra este documento y nada más: lo aprendido sigue en `student_profiles`.
+
+### `chats` (conversaciones)
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `_id` | string (UUID) | |
+| `owner_id` | string (UUID) | Índice |
+| `title` | string | |
+| `document_id` | string \| null | Material vinculado; sin él, conversación libre |
+| `messages` | array **embebido** | `role`, `content` (hasta 20 000 caracteres), `metadata` (envelope del tutor), `created_at` |
+| `summary`, `summary_upto` | string, int | Resumen de lo más antiguo, para no mandar todo el historial al modelo |
+| `created_at`, `updated_at` | datetime | Índice en `updated_at` |
+
+Los mensajes viven **dentro** del chat. Es la colección que más crece y la única con un techo por documento: MongoDB no admite documentos de más de 16 MB (ver [Volumen](#volumen-y-capacidad)).
+
+### `curriculum_research` (temarios investigados, caché global)
+
+Un documento por `tema:nivel`, compartido por todos los estudiantes ([ADR-039](adr/ADR-039-temario-investigado.md)).
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `_id` | string | `"{topic}:{level}"` |
+| `topic`, `level` | string | `level`: `intermedio` o `avanzado` |
+| `modules` | array | Módulos con ideas clave y fuentes verificadas desde las citas de la búsqueda |
+| `created_at` | datetime | |
+
+### `study_time` (tiempo de estudio)
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `_id` | string | `"{student_id}:{YYYY-MM-DD}"`: un documento por estudiante y día |
+| `student_id` | string (UUID) | |
+| `day` | string | Día en la zona horaria del estudiante |
+| `seconds` | int | Cada aviso suma como mucho 60 s |
+| `last_ping_at` | datetime | Para no contar doble con varias pestañas |
+
+### `concept_graphs` (grafo de prerrequisitos curado)
+
+Un solo documento compartido ([ADR-005](adr/ADR-005-grafo-prerrequisitos-curado.md)): `graph_id`, `edges` (prerrequisito → concepto), `aliases` (formas de escribir cada concepto), `version` y `updated_at`.
+
+## Volumen y capacidad
+
+Medido en Atlas el **14-oct-2026** (`dbStats` y `collStats`, solo lectura):
+
+| | |
+|---|---|
+| En disco, con índices | **2.46 MB** |
+| Datos sin comprimir | 1.00 MB |
+| Usuarios | 46 |
+| Documentos (todas las colecciones) | 653 |
+
+Por colección (disco + índices): `fs.chunks` 0.31 MB · `chats` 0.29 · `quizzes` 0.27 · `tutor_interactions` 0.21 · `users` 0.18 · `quiz_attempts` 0.17 · `learning_paths` 0.17 · el resto, menos de 0.15 cada una.
+
+**Qué crece y qué no:**
+- **Crece con el uso:** `chats` (los mensajes van dentro; hoy el mayor pesa 48 KB), `fs.chunks` (texto extraído de cada documento subido, hasta 100 000 caracteres), `quizzes`, `quiz_attempts` y `tutor_interactions`.
+- **Acotado:** `event_outbox` se vacía al procesar y al borrar una cuenta; `curriculum_research` es una caché por tema y nivel, compartida; `concept_graphs` es un documento.
+- **Fuera de Atlas:** los archivos originales van a Cloudflare R2 y la caché de respuestas a Redis.
+
+**Cuánto aguanta:** el plan gratuito de Atlas (M0) admite 512 MB. Al ritmo de hoy, ~0.05 MB por usuario, cabrían unos 10 000 usuarios como los actuales. Con un uso más intenso (documentos grandes y chats largos), una cifra prudente es **1–2 MB por usuario activo**, es decir, unos **250–500 usuarios** antes de acercarse al límite. Para revisarlo:
+
+```bash
+cd backend && python scripts/mongo_volumen.py   # imprime dbStats y el tamaño de cada colección
+```
+
+**Techo por chat:** con mensajes de hasta 20 000 caracteres, un chat llega al límite de 16 MB de MongoDB hacia los ~600 turnos con mensajes de tamaño máximo (unos 26 KB por turno: la pregunta, la respuesta y su envelope). Si eso llega a pasar, la solución es mover `messages` a su propia colección.
+
 ## Índices (arranque)
 
 Definidos en `ensure_all_indexes()`:
