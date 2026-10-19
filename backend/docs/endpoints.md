@@ -6,7 +6,7 @@ Auth: cabecera `Authorization: Bearer <access_token>` salvo donde se indique.
 Swagger: `GET /docs` (si `ENABLE_DOCS=true`)  
 OpenAPI: `GET /openapi.json`  
 Health: `GET /health` (sin prefijo `/api/v1`)
-Ready: `GET /ready` (Mongo/Redis según config; 503 si dependencia caída)
+Ready: `GET /ready` (Mongo/Redis según config; 503 si dependencia caída). El detalle `checks` solo con `Authorization: Bearer <METRICS_TOKEN>` (ADR-050)
 Metrics: `GET /metrics` (Prometheus text si `METRICS_ENABLED=true`; **404** si `false`)
 Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
@@ -16,10 +16,10 @@ Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| `POST` | `/api/v1/auth/register` | No | Alta de usuario (`student`). Password ≥8, mayúsculas, minúsculas y dígito. |
-| `POST` | `/api/v1/auth/token` | No | OAuth2 password: campo `username` = **email**. Devuelve JWT. |
+| `POST` | `/api/v1/auth/register` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). Alta de usuario (`student`). Password ≥8, mayúsculas, minúsculas y dígito. |
+| `POST` | `/api/v1/auth/token` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). OAuth2 password: campo `username` = **email**. Devuelve JWT. |
 | `GET` | `/api/v1/auth/providers` | No | Claves públicas de Google y Clerk. `null` si no están configuradas. La secreta de Clerk no se devuelve. |
-| `POST` | `/api/v1/auth/google` | No | Entrar con Google: recibe el ID token (`credential`) de Google Identity Services, lo verifica y devuelve el mismo JWT que `/auth/token`. Sin cuenta con ese correo, la crea; con cuenta, la vincula. |
+| `POST` | `/api/v1/auth/google` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). Entrar con Google: recibe el ID token (`credential`) de Google Identity Services, lo verifica y devuelve el mismo JWT que `/auth/token`. Sin cuenta con ese correo, la crea; con cuenta, la vincula. |
 
 **Códigos frecuentes:** `201` register, `200` token, `409` conflicto genérico, `401` credenciales, `422` validación, `429` rate limit.
 

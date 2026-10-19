@@ -207,7 +207,10 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     # Vistas previas de Vercel de los PRs; validado al arrancar.
     allow_origin_regex=(settings.CORS_ORIGIN_REGEX or "").strip() or None,
-    allow_credentials=True,
+    # La sesión viaja en `Authorization: Bearer`, nunca en cookies: con
+    # credenciales, un origen admitido podría además leer respuestas con las
+    # cookies del navegador. Sin ellas no se pierde nada (ADR-050).
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -322,9 +325,24 @@ def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
 
 
+def _trae_token_de_metricas(request: Request) -> bool:
+    """Si hay METRICS_TOKEN, solo quien lo presente; si no lo hay (desarrollo), todos."""
+    import hmac
+
+    esperado = (settings.METRICS_TOKEN or "").strip()
+    if not esperado:
+        return True
+    dado = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+    return hmac.compare_digest(dado.encode(), esperado.encode())
+
+
 @app.get("/ready", tags=["Health"])
-async def readiness_check():
-    """Readiness: dependencias opcionales según DB/Redis configurados. No sustituye /health."""
+async def readiness_check(request: Request):
+    """Readiness: dependencias opcionales según DB/Redis configurados. No sustituye /health.
+
+    El estado y el código (200/503) son públicos; qué dependencia falla y con qué
+    excepción, solo con METRICS_TOKEN (ADR-050): es un mapa de la infraestructura.
+    """
     checks: dict[str, str] = {"app": "ok"}
     ready = True
     if settings.DB_PROVIDER == "mongodb":
@@ -377,10 +395,10 @@ async def readiness_check():
 
     status = "ready" if ready else "degraded"
     code = 200 if ready else 503
-    return JSONResponse(
-        {"status": status, "version": settings.APP_VERSION, "checks": checks},
-        status_code=code,
-    )
+    cuerpo: dict = {"status": status, "version": settings.APP_VERSION}
+    if _trae_token_de_metricas(request):
+        cuerpo["checks"] = checks
+    return JSONResponse(cuerpo, status_code=code)
 
 
 @app.get(
@@ -401,13 +419,8 @@ def metrics_endpoint(request: Request):
         return JSONResponse({"detail": "metrics disabled"}, status_code=404)
     # Público exponía volumen de uso, latencias y fallos a cualquiera. Con
     # METRICS_TOKEN definido, solo quien lo presente (el scraper).
-    esperado = (settings.METRICS_TOKEN or "").strip()
-    if esperado:
-        import hmac
-
-        dado = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
-        if not hmac.compare_digest(dado.encode(), esperado.encode()):
-            return JSONResponse({"detail": "No autorizado."}, status_code=401)
+    if not _trae_token_de_metricas(request):
+        return JSONResponse({"detail": "No autorizado."}, status_code=401)
     from src.interfaces.api.dependencies import get_metrics
     from src.infrastructure.metrics.in_memory_metrics import InMemoryMetrics
 

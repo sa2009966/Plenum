@@ -1,8 +1,8 @@
 """Sesiones de Clerk (ADR-027): verificar su token y pedir datos del usuario.
 
 Verificación sin red en cada petición: JWKS en caché, RS256, `iss` de la
-instancia, `exp`/`nbf` con margen y `azp` dentro de los orígenes del frontend
-(si falta, se acepta: Clerk lo omite cuando el `Origin` va vacío).
+instancia, `exp`/`nbf` con margen y `azp` obligatorio y dentro de los orígenes
+del frontend (ADR-050).
 """
 from __future__ import annotations
 
@@ -74,8 +74,10 @@ class ClerkSessionVerifier:
         except (jwt.PyJWTError, ValueError) as exc:
             raise InvalidClerkToken("Sesión no válida.") from exc
         azp = (c.get("azp") or "").rstrip("/")
-        if azp and azp not in self._origenes and not (self._regex and self._regex.match(azp)):
-            # Un token emitido para otro sitio no vale aquí (CSRF, según Clerk).
+        # Un token emitido para otro sitio no vale aquí (CSRF, según Clerk). Sin
+        # `azp` tampoco (ADR-050): el navegador siempre manda Origin al pedirlo,
+        # así que uno sin él salió de fuera del frontend y no hay a quién atribuirlo.
+        if not azp or (azp not in self._origenes and not (self._regex and self._regex.match(azp))):
             raise InvalidClerkToken("Sesión no válida.")
         fva = c.get("fva") or [-1]
         return ClerkSession(

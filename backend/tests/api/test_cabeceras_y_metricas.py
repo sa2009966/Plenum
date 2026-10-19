@@ -35,3 +35,31 @@ def test_el_render_yaml_no_expone_swagger_ni_metricas():
     y = (pathlib.Path(__file__).parents[3] / "render.yaml").read_text()
     assert 'key: ENABLE_DOCS\n        value: "false"' in y
     assert "key: METRICS_TOKEN" in y
+
+
+def test_ready_dice_si_esta_listo_pero_el_detalle_solo_con_token(client, monkeypatch):
+    """ADR-050: qué dependencia falla y con qué excepción es un mapa de la infraestructura."""
+    monkeypatch.setattr(settings, "METRICS_TOKEN", "t" * 32)
+
+    publico = client.get("/ready")
+    assert publico.status_code == 200 and publico.json()["status"] == "ready"
+    assert "checks" not in publico.json()
+    con_token = client.get("/ready", headers={"Authorization": f"Bearer {'t' * 32}"})
+    assert con_token.json()["checks"]["app"] == "ok"
+
+
+def test_cors_admite_el_frontend_sin_credenciales(client):
+    """ADR-050: la sesión va en Authorization, no en cookies; credenciales no hacen falta."""
+    origen = settings.CORS_ORIGINS[0]
+    r = client.options(
+        "/api/v1/chats/",
+        headers={"Origin": origen, "Access-Control-Request-Method": "POST",
+                 "Access-Control-Request-Headers": "authorization"},
+    )
+
+    assert r.headers.get("access-control-allow-origin") == origen
+    assert "access-control-allow-credentials" not in r.headers
+    assert client.options(
+        "/api/v1/chats/",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+    ).headers.get("access-control-allow-origin") is None

@@ -100,5 +100,6 @@ Por qué el sistema es así. No se editan: una decisión nueva va en un ADR nuev
 | [ADR-046](adr/ADR-046-tope-del-chat-20000.md) | El tope de un mensaje del chat sube a 20 000 caracteres |
 | [ADR-047](adr/ADR-047-render-despliega-main.md) | Render despliega `main` |
 | [ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md) | El tutor dibuja esquemas en Mermaid, y solo llegan los que se pueden pintar |
+| [ADR-050](adr/ADR-050-proxy-de-vercel-y-borde-del-backend.md) | El frontend llama por un rewrite de Vercel; `azp` obligatorio, cuentas propias cerradas en modo Clerk, CORS sin credenciales y `/ready` sin detalle público |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.

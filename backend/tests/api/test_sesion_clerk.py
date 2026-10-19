@@ -158,3 +158,21 @@ async def test_el_rate_limit_cuenta_por_usuario_de_clerk(monkeypatch):
                    "headers": [(b"authorization", f"Bearer {_tok('user_42')}".encode())]})
 
     assert await rl._client_key_async(req) == "c:user_42"
+
+
+def test_en_modo_clerk_no_se_crean_ni_abren_cuentas_propias(entorno, monkeypatch):
+    """ADR-050: con AUTH_MODE=clerk, registro, login y Google propios no existen.
+
+    Antes seguían emitiendo un JWT que ya no abría sesión: rutas públicas sin
+    uso que solo servían para crear cuentas y probar contraseñas.
+    """
+    c, clerk = entorno
+    monkeypatch.setattr(settings, "AUTH_MODE", "clerk")
+
+    assert c.post("/api/v1/auth/register", json={"username": "zz", "email": "zz@example.com", "password": "Clave123"}).status_code == 404
+    assert c.post("/api/v1/auth/token", data={"username": "zz@example.com", "password": "Clave123"}).status_code == 404
+    assert c.post("/api/v1/auth/google", json={"id_token": "x" * 30}).status_code == 404
+    # Lo que el frontend necesita para mostrar Clerk sigue ahí, y la sesión de Clerk vale.
+    assert c.get("/api/v1/auth/providers").status_code == 200
+    sub = _alta(clerk, f"k_{uuid4().hex[:8]}@example.com")
+    assert c.get("/api/v1/users/me", headers=_h(_tok(sub))).status_code == 200
