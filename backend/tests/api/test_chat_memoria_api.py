@@ -127,3 +127,27 @@ def test_un_chat_largo_llega_con_resumen_y_se_guarda(client_y_tutor, ruta):
     guardado = asyncio.run(deps.get_chat_repo().find_by_id(UUID(chat_id)))
     assert guardado.summary_upto == SUMMARY_BATCH
     assert "me llamo Ana" in guardado.summary
+
+
+class TutorQueDibuja:
+    """Los tokens traen un esquema con enlace; el cierre del servicio, ya sin él."""
+
+    async def answer_stream(self, document_id, question, student_id, history=()):
+        yield "Mira:\n```mermaid\nflowchart TD\n  A --> B\n  click A \"https://x\"\n```", None
+        yield "Mira:", ResponseEnvelope(type="answer", emotion=AffectState.ENCOURAGING, payload={"content": "Mira:"})
+
+
+def test_tras_el_streaming_se_guarda_el_texto_del_cierre_no_los_tokens():
+    """ADR-048: el esquema que no se puede pintar no debe quedar en el historial."""
+    clear_dependency_caches()
+    app.dependency_overrides[deps.get_chat_tutor_service] = lambda: TutorQueDibuja()
+    try:
+        with TestClient(app) as c:
+            h = _auth(c)
+            chat = c.post("/api/v1/chats/", headers=h, json={}).json()
+            c.post(f"/api/v1/chats/{chat['id']}/stream", headers=h, json={"role": "user", "content": "dibújalo"})
+            mensajes = c.get(f"/api/v1/chats/{chat['id']}", headers=h).json()["messages"]
+            assert mensajes[-1]["role"] == "assistant" and mensajes[-1]["content"] == "Mira:"
+    finally:
+        app.dependency_overrides.clear()
+        clear_dependency_caches()

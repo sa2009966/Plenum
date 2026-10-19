@@ -82,7 +82,7 @@ feature/backend  →  develop  →  main
 
 1. Desarrollar y documentar en `feature/backend` (esta rama de feature).
 2. Fusionar a `develop` y **testear** integración allí.
-3. Solo cuando `develop` esté estable, promover a `main`.
+3. Solo cuando `develop` esté estable, promover a `main`. Render despliega `main`.
 
 ## Seguridad rápida
 

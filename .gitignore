@@ -106,3 +106,5 @@ CLAUDE.md
 
 # Recibos locales de archify (llevan rutas de la máquina que los generó)
 docs/diagramas/*.delivery.json
+docs/diagramas/*.finalize*.json
+docs/diagramas/*.browser-check.json

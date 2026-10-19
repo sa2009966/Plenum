@@ -27,8 +27,23 @@ from src.interfaces.schemas.user_schemas import (
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 
+def cuentas_propias_abiertas() -> None:
+    """Con AUTH_MODE=clerk, registrarse o entrar sin Clerk no existe (ADR-050).
+
+    Antes estas rutas seguían emitiendo el JWT propio aunque ya no abriera
+    sesión: quedaban públicas, sin uso, como superficie para crear cuentas y
+    probar contraseñas. 404 y no 403: para el cliente la ruta no está.
+    """
+    if (settings.AUTH_MODE or "own").strip().lower() == "clerk":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entra con tu cuenta de Plenum.")
+
+
+_CUENTA_PROPIA = [Depends(cuentas_propias_abiertas)]
+
+
 @router.post(
     "/register",
+    dependencies=_CUENTA_PROPIA,
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar usuario",
@@ -75,6 +90,7 @@ async def register(
 
 @router.post(
     "/token",
+    dependencies=_CUENTA_PROPIA,
     response_model=TokenResponse,
     summary="Obtener token JWT (OAuth2 password)",
     description=(
@@ -130,6 +146,7 @@ async def providers():
 
 @router.post(
     "/google",
+    dependencies=_CUENTA_PROPIA,
     response_model=TokenResponse,
     summary="Entrar con Google",
     description=(

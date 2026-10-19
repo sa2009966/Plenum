@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
+
+#: /ready sin cabeceras: sin METRICS_TOKEN (desarrollo) trae el detalle (ADR-050).
+_SIN_CABECERAS = Request({"type": "http", "method": "GET", "path": "/ready", "headers": []})
 
 
 @pytest.mark.asyncio
@@ -279,7 +283,7 @@ async def test_readiness_mongodb_ok_and_redis_skipped(monkeypatch):
     mock_db = MagicMock()
     mock_db.command = AsyncMock(return_value={"ok": 1})
     with patch("src.infrastructure.mongodb.database.get_database", AsyncMock(return_value=mock_db)):
-        resp = await readiness_check()
+        resp = await readiness_check(_SIN_CABECERAS)
     body = resp.body.decode()
     assert '"mongodb":"ok"' in body
     assert '"redis":"skipped"' in body
@@ -299,7 +303,7 @@ async def test_readiness_mongodb_failure_returns_503(monkeypatch):
         "src.infrastructure.mongodb.database.get_database",
         AsyncMock(side_effect=ConnectionError("down")),
     ):
-        resp = await readiness_check()
+        resp = await readiness_check(_SIN_CABECERAS)
     assert resp.status_code == 503
     assert "error:ConnectionError" in resp.body.decode()
 
@@ -321,7 +325,7 @@ async def test_readiness_redis_ok(monkeypatch):
     mock_redis_mod.Redis.from_url.return_value = mock_client
     # `redis.asyncio`: el ping síncrono bloqueaba el event loop en /ready.
     with patch.dict("sys.modules", {"redis.asyncio": mock_redis_mod}):
-        resp = await readiness_check()
+        resp = await readiness_check(_SIN_CABECERAS)
     assert resp.status_code == 200
     assert '"redis":"ok"' in resp.body.decode()
     mock_client.aclose.assert_awaited_once()
@@ -343,7 +347,7 @@ async def test_readiness_redis_failure_returns_503(monkeypatch):
     mock_redis_mod = MagicMock()
     mock_redis_mod.Redis.from_url.side_effect = ConnectionError("redis down")
     with patch.dict("sys.modules", {"redis.asyncio": mock_redis_mod}):
-        resp = await readiness_check()
+        resp = await readiness_check(_SIN_CABECERAS)
     assert resp.status_code == 503
     assert "error:ConnectionError" in resp.body.decode()
 
@@ -419,7 +423,7 @@ async def test_readiness_reporta_el_almacen_por_defecto(monkeypatch):
     monkeypatch.setattr(settings, "CACHE_BACKEND", "memory")
     monkeypatch.setattr(settings, "ORIGINAL_STORAGE", "blob")
 
-    resp = await readiness_check()
+    resp = await readiness_check(_SIN_CABECERAS)
 
     assert resp.status_code == 200
     assert '"storage":"blob"' in resp.body.decode()
@@ -443,7 +447,7 @@ async def test_readiness_degrada_si_r2_no_responde(monkeypatch):
 
     monkeypatch.setattr(deps, "get_original_blob_store", lambda: AlmacenCaido())
 
-    resp = await readiness_check()
+    resp = await readiness_check(_SIN_CABECERAS)
 
     assert resp.status_code == 503
     assert "r2:error:ConnectionError" in resp.body.decode()

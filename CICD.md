@@ -15,14 +15,14 @@
 ### Modelo de ramas (fuente de verdad: README del repo)
 
 ```
-feature/backend    → develop      (Render auto-despliega feature/backend)
+feature/backend    → develop
 feature/frontend   → develop
-develop            → main          (release)
+develop            → main          (release; Render auto-despliega main)
 ```
 
 - `feature/backend`, `feature/frontend`, `develop` y `main` son **ramas protegidas de larga vida** (las que el `pre-push` del repo ya bloquea contra non-fast-forward).
 - El trabajo de cada tarea va en una **rama corta** derivada de la rama de área: `feature/backend-<desc>` o `feature/frontend-<desc>`, y su PR apunta a `develop`.
-- **Cuidado con Render:** `feature/backend` tiene `autoDeploy: true`. Un push a esa rama despliega. Por eso el gate de pytest es obligatorio antes de tocarla.
+- **Cuidado con Render:** `main` tiene `autoDeploy: true`. Un push a esa rama despliega. Por eso el gate de pytest es obligatorio antes de tocarla.
 
 ---
 
@@ -80,7 +80,7 @@ Las tres últimas líneas son las que evitan el 80% de los enredos con agentes.
 
 ## 3. Puesta a punto del clon (una vez por persona, ya con el repo clonado)
 
-Ambas personas **ya tienen el repo clonado**, así que no hay que descargar nada. Lo que falta es lo que *no* viene activo al clonar y suele olvidarse: **el `pre-push` hook** (git nunca instala hooks automáticamente por seguridad) y la **config de rebase**. Sin el hook, se puede empujar código con pytest en rojo a `feature/backend` y romper el deploy de Render.
+Ambas personas **ya tienen el repo clonado**, así que no hay que descargar nada. Lo que falta es lo que *no* viene activo al clonar y suele olvidarse: **el `pre-push` hook** (git nunca instala hooks automáticamente por seguridad) y la **config de rebase**. Sin el hook, se puede empujar código con pytest en rojo a `main` y romper el deploy de Render.
 
 ```bash
 cd LARIA-IA        # o donde lo tengas
@@ -277,7 +277,7 @@ git switch main && git pull
 gh pr create --base main --head develop --title "release: <versión>" --fill
 gh pr merge --merge --auto        # o squash según preferencia de release
 ```
-Recordá que `feature/backend` es lo que Render despliega en continuo; `main` es el sello de release.
+Recordá que `main` es el sello de release y lo que Render despliega. Un push a `feature/backend` no actualiza el público.
 
 ---
 
@@ -285,7 +285,7 @@ Recordá que `feature/backend` es lo que Render despliega en continuo; `main` es
 
 Pegar esto en el prompt del agente (o en `.cursor/hooks`) al inicio de cada sesión:
 
-> Trabajás en `LARIA-IA`, monorepo con `backend/` (FastAPI/DDD/hexagonal/MongoDB/OpenAI). Tu área es **<backend|frontend>** y solo editás esa carpeta. Antes de tocar nada: `git switch develop && git pull && git switch -c feature/<area>-<desc>`. Commits pequeños con prefijo de área. Antes del push final: desde `backend/` corré `python -m pytest tests -q` en verde (respetá el gate de cobertura ≥90%), luego `git fetch origin && git rebase origin/develop`, luego `git push`. Creá el PR con `gh pr create --fill --base develop --title "<título>"`. Esperá el CI con `gh pr checks --watch`. Mergeá con `gh pr merge --squash --delete-branch --auto`. **Nunca** `git push --force` a `feature/backend`, `feature/frontend`, `develop` ni `main` (el pre-push lo bloquea y Render despliega feature/backend). Nunca `git add .` sin revisar. Nunca commitees `.env`, claves (`*.pem`, `*.key`, `*service-account*.json`), `*.db`/`*.sqlite3`, `node_modules/`, `frontend/dist/`, ni reportes de `scripts/out/`. Nunca subas la `OPENAI_API_KEY` ni la cadena de Mongo Atlas. Si tocás un endpoint, un evento del outbox o `POLICY_VERSION`, hacelo en un PR aparte y avisá. Si el rebase da conflicto en un archivo que no es de tu área, **detenete y avisá**; no lo resuelvas vos.
+> Trabajás en `LARIA-IA`, monorepo con `backend/` (FastAPI/DDD/hexagonal/MongoDB/OpenAI). Tu área es **<backend|frontend>** y solo editás esa carpeta. Antes de tocar nada: `git switch develop && git pull && git switch -c feature/<area>-<desc>`. Commits pequeños con prefijo de área. Antes del push final: desde `backend/` corré `python -m pytest tests -q` en verde (respetá el gate de cobertura ≥90%), luego `git fetch origin && git rebase origin/develop`, luego `git push`. Creá el PR con `gh pr create --fill --base develop --title "<título>"`. Esperá el CI con `gh pr checks --watch`. Mergeá con `gh pr merge --squash --delete-branch --auto`. **Nunca** `git push --force` a `feature/backend`, `feature/frontend`, `develop` ni `main` (el pre-push lo bloquea y Render despliega main). Nunca `git add .` sin revisar. Nunca commitees `.env`, claves (`*.pem`, `*.key`, `*service-account*.json`), `*.db`/`*.sqlite3`, `node_modules/`, `frontend/dist/`, ni reportes de `scripts/out/`. Nunca subas la `OPENAI_API_KEY` ni la cadena de Mongo Atlas. Si tocás un endpoint, un evento del outbox o `POLICY_VERSION`, hacelo en un PR aparte y avisá. Si el rebase da conflicto en un archivo que no es de tu área, **detenete y avisá**; no lo resuelvas vos.
 
 ### Referencia rápida
 
@@ -341,7 +341,7 @@ git log --oneline -5                          # encontrar el último commit buen
 git revert <sha-del-malo> --no-edit
 git push                                       # revert es un commit nuevo: no rompe la protección
 ```
-Nunca `reset --hard` + `push --force` a una rama compartida. El `pre-push` hook y la protección lo bloquean, y si no lo bloquearan, borraría el trabajo de la otra persona y confundiría a Render. Si lo roto está en `feature/backend`, el revert además dispara un re-deploy limpio.
+Nunca `reset --hard` + `push --force` a una rama compartida. El `pre-push` hook y la protección lo bloquean, y si no lo bloquearan, borraría el trabajo de la otra persona y confundiría a Render. Si lo roto está en `main`, el revert además dispara un re-deploy limpio.
 
 ### Las dos personas editaron el mismo contrato
 Es la única situación que este documento no puede prevenir por completo. Regla: **gana quien posee el contrato** (el backend posee la API y los contratos de dominio). El otro hace `git rebase --abort`, espera el merge del dueño, y reaplica su cambio sobre la versión nueva. Cinco minutos de espera valen más que una hora de contratos mezclados.

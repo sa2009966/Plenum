@@ -23,6 +23,7 @@ No escribe nada salvo con `--register`, que crea un usuario desechable.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 import uuid
@@ -86,16 +87,23 @@ def comprobar_ready(
     exigir_redis: bool,
     exigir_r2: bool = False,
 ) -> None:
-    resp = _get(cliente, "/ready")
+    # El detalle de /ready solo sale con METRICS_TOKEN (ADR-050).
+    token = os.environ.get("METRICS_TOKEN", "").strip()
+    resp = _get(cliente, "/ready", headers={"Authorization": f"Bearer {token}"} if token else {})
     if resp is None:
         rep.add(FALLA, "/ready", "sin respuesta")
         return
     checks = {}
     try:
-        checks = resp.json().get("checks", {})
+        cuerpo = resp.json()
     except ValueError:
         rep.add(FALLA, "/ready", "respuesta no es JSON")
         return
+    if "checks" not in cuerpo:
+        estado = FALLA if resp.status_code != 200 else AVISO
+        rep.add(estado, "/ready", f"{cuerpo.get('status')} — sin detalle: define METRICS_TOKEN para verlo")
+        return
+    checks = cuerpo["checks"]
 
     for dependencia, exigida in (("mongodb", exigir_mongo), ("redis", exigir_redis)):
         estado_dep = checks.get(dependencia, "ausente")

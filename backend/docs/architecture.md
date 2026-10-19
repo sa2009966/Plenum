@@ -1,5 +1,15 @@
 # Arquitectura del sistema (Backend LARIA)
 
+> Al día a 14-oct-2026. Los diagramas de archify (con cada nodo citando su archivo y línea)
+> están en [`docs/diagramas/`](../../docs/diagramas/):
+> [arquitectura](../../docs/diagramas/laria-arquitectura.png) ·
+> [turno del chat](../../docs/diagramas/laria-turno-chat.png) ·
+> [la clase por tramos](../../docs/diagramas/laria-clase-tramos.png) ·
+> [evidencia](../../docs/diagramas/laria-evidencia.png) ·
+> [datos](../../docs/diagramas/laria-datos.png) ·
+> [borrar una cuenta](../../docs/diagramas/laria-borrar-cuenta.png).
+> Los mermaid de este documento son más antiguos y esquemáticos.
+
 ## Principios
 
 1. **LARIA es un tutor**, no un chatbot: el objetivo es que el estudiante aprenda.
@@ -65,14 +75,27 @@ flowchart TB
 | `QuizAggregate` | Preguntas MCQ, grading server-side |
 | `QuizAttemptAggregate` | Intento calificado + evento `QuizAttemptCompletedEvent` |
 | `TutorInteractionAggregate` | Evidencia Q&A tutor |
+| `StudentProfile` | Perfil cognitivo: dominio por concepto, nivel por tema, memoria pedagógica, preferencias. Lo escribe solo el projector |
+| `LearningPathAggregate` | La clase: módulos por tramo (`basico → intermedio → avanzado`), estado de enseñanza, `next_tier` ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md), [ADR-037](adr/ADR-037-rutas-por-tramos.md)) |
+| `ChatAggregate` | Conversación con mensajes embebidos y resumen de lo antiguo |
+| `TutorSessionAggregate` | Estado multi-turno del tutor sobre un documento |
+| `StudyDay` | Segundos estudiados por día |
+| `ConceptGraph` | Grafo curado de prerrequisitos ([ADR-005](adr/ADR-005-grafo-prerrequisitos-curado.md)) |
 
 El análisis vive **en el documento** (`analysis_result`), no en un bounded context Analysis separado (eliminado por deuda).
 
 ## Puertos relevantes
 
-- `UserRepository`, `DocumentRepository`, `QuizRepository`, `QuizAttemptRepository`, `TutorInteractionRepository`
-- `IAAnalyst`: `analyze`, `answer_question`, `generate_quiz`
-- `EventBus`: publish/subscribe de eventos de dominio
+- Repositorios (`repositories.py`): `User`, `Document`, `Quiz`, `QuizAttempt`, `TutorInteraction`, `StudentProfile`, `ConceptGraph`, `TutorSession`, `Chat`, `LearningPath`, `StudyTime`
+- `IAAnalyst`: `analyze`, `answer_question`, `generate_quiz`, `generate_diagnostic`
+- `LessonGenerator`: explicación + comprobación de la clase y temario por tramo
+- `CurriculumResearcher` / `CurriculumResearchRepository`: temario investigado en la web, con caché global ([ADR-039](adr/ADR-039-temario-investigado.md))
+- `ContentModerator`: filtro de temas y mensajes antes del modelo ([ADR-036](adr/ADR-036-filtro-de-temas.md))
+- `DocumentBlobStore`: texto extraído (GridFS) y original (R2) ([ADR-012](adr/ADR-012-texto-y-original.md))
+- `ExternalIdentityVerifier`: Google y Clerk
+- `ChatTitleGenerator`, `ConversationSummarizer`, `CachePort`, `MetricsPort`
+- `TextToSpeechPort` y el resto de `embodiment.py` (la voz funciona; presencia y sensores, apagados)
+- `EventBus`: publish/subscribe de eventos de dominio (memoria u outbox en Mongo)
 
 ## Flujo típico: preguntar al tutor
 
@@ -111,6 +134,11 @@ sequenceDiagram
 - FastAPI `debug=False` siempre (sin stack traces al cliente).
 - Mongo en Compose: autenticado, **sin** publicar `27017` al host.
 - Contenedor app corre como usuario no-root.
+- **Clerk:** la sesión se verifica con JWKS. Borrar una cuenta de Clerk exige una verificación de identidad de ≤ 10 min (`fva`) y borra primero el usuario en Clerk ([ADR-041](adr/ADR-041-borrar-cuentas-de-clerk.md)).
+- **CORS:** lista exacta (`CORS_ORIGINS`) más un patrón para las vistas previas de Vercel (`CORS_ORIGIN_REGEX`), que debe ir anclado y no dejar pasar orígenes ajenos: si no, la app no arranca.
+- **Contenido:** la moderación de OpenAI filtra temas y mensajes antes del modelo; ante señales de autolesión responde siempre con apoyo ([ADR-036](adr/ADR-036-filtro-de-temas.md)).
+- **Abusos de evaluación y chat:** una nivelación o prueba de paso se responde una vez (409); el cliente no puede escribir mensajes `assistant`; mensajes de hasta 20 000 caracteres; la prueba de paso, 6 por minuto ([ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md), [ADR-046](adr/ADR-046-tope-del-chat-20000.md)).
+- **Validación de producción:** `validate_security_settings` solo exige Redis, outbox, rate limit y CORS sin comodín cuando `APP_ENV=production`. **El servicio de Render corre hoy con `APP_ENV=development`**, así que esas comprobaciones no se ejecutan (ver `deploy-render.md`).
 
 ## Persistencia dual
 
@@ -155,9 +183,32 @@ APIs:
 - `GET /api/v1/learning/me/profile` — mastery efectivo, confianza, memoria
 - `GET /metrics` — métricas del sistema (tokens, cache, conceptos)
 
+## Qué subsistema sale de cada ADR (desde septiembre)
+
+| Subsistema | ADR | Dónde vive |
+|------------|-----|-----------|
+| Nivelación sin material y calibrada por rondas | [016](adr/ADR-016-diagnostico-de-entrada.md), [031](adr/ADR-031-nivelacion-calibrada.md) | `diagnostic_planner.py`, `quiz_service.py` |
+| La clase: ruta, explicación y comprobación | [028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md) | `teaching_policy.py`, `teaching_service.py` |
+| Repaso por olvido | [032](adr/ADR-032-repaso-espaciado.md) | `TeachingPolicy.due_review` |
+| Cómo seguir tras una ruta | [034](adr/ADR-034-como-seguir-tras-una-ruta.md) | `teaching_service.next_suggestions` |
+| Filtro de temas y apoyo | [036](adr/ADR-036-filtro-de-temas.md) | `content_safety_service.py`, `openai_moderator.py` |
+| Rutas por tramos | [037](adr/ADR-037-rutas-por-tramos.md) | `learning_path.py` (`TIERS`, `next_tier`) |
+| Tutorial guardado en la cuenta | [038](adr/ADR-038-tutorial-de-bienvenida.md) | `POST /users/me/onboarding` |
+| Temario investigado en la web | [039](adr/ADR-039-temario-investigado.md) | `web_researcher.py`, `curriculum_research` |
+| Que el tutor no se repita | [040](adr/ADR-040-que-el-tutor-no-se-repita.md) | `repetition.py`, `TutorPolicy` |
+| Borrar cuentas de Clerk | [041](adr/ADR-041-borrar-cuentas-de-clerk.md) | `account_service.py` |
+| Prueba de paso de la ruta | [042](adr/ADR-042-prueba-de-paso-de-la-ruta.md) | `TeachingService.passage_test` |
+| Cerrar abusos | [043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md) | `quiz_service.py`, `chat_schemas.py`, `rate_limit.py` |
+| Reintentar no es evidencia | [044](adr/ADR-044-reintentar-no-es-evidencia.md) | `LearningEvidenceProjector._es_reintento` |
+| Reparto y rúbrica de la ronda avanzada | [045](adr/ADR-045-reparto-y-rubrica-de-la-ronda-avanzada.md) | `fit_to_plan`, `_RUBRICA_DIFICULTAD` |
+| Tope del chat a 20 000 | [046](adr/ADR-046-tope-del-chat-20000.md) | `chat_schemas.py` |
+| Render despliega `main` | [047](adr/ADR-047-render-despliega-main.md) | `render.yaml` |
+| Esquemas en las explicaciones | [048](adr/ADR-048-esquemas-en-las-explicaciones.md) | `visuals.py`, `chat_tutor_service._con_esquemas`, `/lesson` |
+
 ## Modelo OpenAI y economía
 
 - Default: `OPENAI_MODEL_DEFAULT` / `OPENAI_MODEL` = `gpt-4o-mini`
+- Investigación del temario: `OPENAI_MODEL_RESEARCH` = `gpt-4o` con `web_search`; voz: `TTS_MODEL` = `gpt-4o-mini-tts`; moderación: `omni-moderation`
 - Fuerte: `OPENAI_MODEL_STRONG` vía `ModelRouter` (struggle alto, socrático+hard)
 - `LlmGate` + `CachePort`: reutiliza análisis/quizzes/respuestas equivalentes; invalida por hash de contenido y versión de política
 - Ver ADR-001 y ADR-003

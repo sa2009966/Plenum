@@ -40,6 +40,7 @@ from src.domain.ports.repositories import (
     StudentProfileRepository,
 )
 from src.domain.services.cognitive_style import chosen_style
+from src.domain.services.visuals import extract_diagrams
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
     display_label,
@@ -341,7 +342,9 @@ class TeachingService:
             topic_label=peticion.concept_title,
         )
         await self._quizzes.save(quiz)
-        path.deliver_lesson(leccion.markdown, leccion.example_summary, quiz.id)
+        # Solo llegan los esquemas que se pueden pintar (ADR-048).
+        markdown, _ = extract_diagrams(leccion.markdown)
+        path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
         await self._paths.save(path)
         return LessonStep(path, quiz)
 

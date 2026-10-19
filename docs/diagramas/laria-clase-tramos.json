@@ -449,7 +449,7 @@
     "repository": {
       "url": "git@github.com:sa2009966/Plenum.git",
       "link_mode": "local-only",
-      "revision": "84249a2831a93d14a0e23a95c1833801aad7326d"
+      "revision": "3ae69a19bd8d275ab50300cedf51139cdb2b1298"
     }
   },
   "lanes": [
@@ -483,8 +483,8 @@
       "sources": [
         {
           "path": "backend/src/application/services/teaching_service.py",
-          "line": 252,
-          "end_line": 290,
+          "line": 261,
+          "end_line": 284,
           "label": "_sync_assessment"
         }
       ]
@@ -523,7 +523,7 @@
         },
         {
           "path": "backend/src/application/services/teaching_service.py",
-          "line": 339,
+          "line": 374,
           "label": "answer_check"
         }
       ]
@@ -548,22 +548,27 @@
     {
       "id": "prueba",
       "type": "waiting",
-      "label": "Nueva nivelación",
-      "sublabel": "ronda según el nivel",
+      "label": "Prueba de paso",
+      "sublabel": "mide los módulos del tramo",
       "lane": "paso",
       "col": 3,
       "tag": "diagnostic",
       "sources": [
         {
-          "path": "backend/src/domain/services/diagnostic_planner.py",
-          "line": 98,
-          "end_line": 110,
-          "label": "round_for"
+          "path": "backend/src/application/services/teaching_service.py",
+          "line": 348,
+          "end_line": 371,
+          "label": "passage_test"
         },
         {
-          "path": "backend/src/domain/services/teaching_policy.py",
-          "line": 96,
-          "label": "tier_to_open"
+          "path": "backend/src/domain/services/diagnostic_planner.py",
+          "line": 250,
+          "label": "plan_passage_test"
+        },
+        {
+          "path": "backend/src/application/services/quiz_service.py",
+          "line": 335,
+          "label": "QuizAlreadyAnswered (409)"
         }
       ]
     },
@@ -599,7 +604,7 @@
         },
         {
           "path": "backend/src/application/services/teaching_service.py",
-          "line": 297,
+          "line": 306,
           "label": "reopen_for_review"
         }
       ]
@@ -680,6 +685,12 @@
       "from": "fin_tramo",
       "to": "completada",
       "label": "era el avanzado"
+    },
+    {
+      "from": "prueba",
+      "to": "repaso",
+      "label": "no la superó",
+      "variant": "dashed"
     }
   ],
   "cards": [
@@ -695,8 +706,9 @@
       "dot": "amber",
       "title": "Prueba de paso",
       "items": [
-        "Es la nivelación del mismo tema",
-        "Si no sube de nivel, el tramo sigue terminado y se puede reintentar"
+        "Sale de la ruta: mide lo estudiado en el tramo, sin pedir tema ni crear otra ruta",
+        "Se responde una vez; reenviarla da 409",
+        "Si no la supera, lo flojo se repasa y puede pedir otra"
       ]
     },
     {

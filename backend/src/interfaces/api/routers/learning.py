@@ -15,6 +15,7 @@ from src.application.services.teaching_service import (
 )
 from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 from src.domain.ports.ia_analyst import IAAnalysisError
+from src.domain.services.visuals import extract_diagrams
 from src.domain.services.content_safety import UnsafeTopicError
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
@@ -466,10 +467,12 @@ async def lesson(
     except IAAnalysisError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     path = await service.projected(paso.path, usuario)
+    markdown, esquemas = extract_diagrams(path.teaching.lesson_markdown if paso.check else "")
     return LessonResponse(
         path=_map_path(path),
-        markdown=path.teaching.lesson_markdown if paso.check else "",
+        markdown=markdown,
         check=quiz_to_public_response(paso.check) if paso.check else None,
+        visuals=[e.to_dict() for e in esquemas],
     )
 
 

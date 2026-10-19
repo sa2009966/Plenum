@@ -9,6 +9,7 @@ from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.repetition import anti_repetition_instruction
+from src.domain.services.visuals import DIAGRAM_INSTRUCTION, wants_diagram
 from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
@@ -339,7 +340,7 @@ _STYLE_INSTRUCTIONS: dict[CognitiveStyle, str] = {
     CognitiveStyle.TECHNICAL: "Puedes usar terminología técnica precisa y rigor formal moderado.",
     CognitiveStyle.MATHEMATICAL: "Prioriza notación matemática clara, definiciones y derivaciones breves.",
     CognitiveStyle.ANALOGY: "Explica mediante analogías concretas antes de formalizar.",
-    CognitiveStyle.VISUAL: "Describe estructuras como si dibujaras un esquema o diagrama mental.",
+    CognitiveStyle.VISUAL: "Muestra la estructura: partes, relaciones y pasos, y apóyate en un esquema.",
     CognitiveStyle.STEP_BY_STEP: "Descompón en pasos numerados; no saltes etapas intermedias.",
 }
 
@@ -439,6 +440,9 @@ class TutorPolicy:
         if req.variant.value == "resume" and req.return_to_title is None:
             variante += " Retoma el tema conectándolo con la base que acaba de repasar."
         estilo = f" Forma de explicar que prefiere: {_STYLE_INSTRUCTIONS[req.style]}" if req.style else ""
+        if wants_diagram(req.style):
+            # Va en `explanation`: el ejemplo resuelto sigue siendo texto (ADR-048).
+            estilo += DIAGRAM_INSTRUCTION.replace("Si un esquema", "En explanation, si un esquema")
         evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
         # Ideas clave de fuentes reales (ADR-039): la clase se apoya en ellas, así el
         # contenido intermedio o avanzado no sale solo de la memoria del modelo.
@@ -679,6 +683,10 @@ class TutorPolicy:
                 "consolidado un concepto."
             )
         system += _oferta_de_cuestionario(quiz_request, con_material=decision is not None)
+        # Esquema solo si su estilo es visual o lo pidió en este mensaje (ADR-048).
+        estilo_turno = decision.cognitive_style if decision is not None else (learner.style if learner else None)
+        if wants_diagram(estilo_turno, question):
+            system += DIAGRAM_INSTRUCTION
         if adaptation is not None:
             system = f"{system} {adaptation.to_prompt_fragment()}"
         if history:

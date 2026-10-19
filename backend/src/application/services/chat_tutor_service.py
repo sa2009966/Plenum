@@ -19,6 +19,7 @@ from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.content_safety import SafetyAction, safety_message
 from src.domain.services.repetition import repeats_recent
+from src.domain.services.visuals import extract_diagrams
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
 from src.domain.services.learner_context import (
@@ -135,6 +136,19 @@ def _last_graded_ratio(
     if entry is None or entry.attempts == 0:
         return None
     return entry.last_score_ratio
+
+
+def _con_esquemas(content: str, extra: dict) -> str:
+    """Deja en la respuesta solo los esquemas que se pueden pintar y los anuncia (ADR-048).
+
+    Lo que se guarda y lo que lleva el envelope es este texto final: en streaming
+    ya se mostraron los tokens crudos, y el cliente pinta el esquema con el
+    `content` del envelope, no con lo que fue llegando.
+    """
+    limpio, esquemas = extract_diagrams(content)
+    if esquemas:
+        extra["visuals"] = [e.to_dict() for e in esquemas]
+    return limpio
 
 
 def _envelope_type(
@@ -340,6 +354,7 @@ class ChatTutorService:
                 extra["celebrated_concept"] = milestone
             if plan.explanation:
                 extra["explanation"] = plan.explanation
+            content = _con_esquemas(content, extra)
             envelope = ResponseEnvelope.from_decision(
                 decision,
                 _envelope_type(decision, milestone),
@@ -369,15 +384,17 @@ class ChatTutorService:
                 **pedido, learner=replace(learner or LearnerContext(), avoid_reply=content)
             )
         affect = self._affect.select(profile, None)
+        extra = _nivel_conocido(
+            {**_intent_payload(intention), "grounded": False, **_estilo_elegido(eleccion)},
+            learner,
+        )
+        content = _con_esquemas(content, extra)
         envelope = ResponseEnvelope.from_decision(
             None,
             "answer",
             affect,
             content=content,
-            extra=_nivel_conocido(
-                {**_intent_payload(intention), "grounded": False, **_estilo_elegido(eleccion)},
-                learner,
-            ),
+            extra=extra,
         )
         return TutorResponse(content=content, envelope=envelope)
 
@@ -439,6 +456,7 @@ class ChatTutorService:
                 extra["celebrated_concept"] = milestone
             if plan.explanation:
                 extra["explanation"] = plan.explanation
+            content = _con_esquemas(content, extra)
             envelope = ResponseEnvelope.from_decision(
                 plan.decision,
                 _envelope_type(plan.decision, milestone),
@@ -474,6 +492,7 @@ class ChatTutorService:
             logger.info("respuesta_repetida regenerada=no streaming=si")
 
         # Envelope final (tras el streaming) para que el cliente cierre.
+        content = _con_esquemas(content, extra)
         envelope = ResponseEnvelope.from_decision(
             None,
             "answer",

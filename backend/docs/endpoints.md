@@ -6,7 +6,7 @@ Auth: cabecera `Authorization: Bearer <access_token>` salvo donde se indique.
 Swagger: `GET /docs` (si `ENABLE_DOCS=true`)  
 OpenAPI: `GET /openapi.json`  
 Health: `GET /health` (sin prefijo `/api/v1`)
-Ready: `GET /ready` (Mongo/Redis según config; 503 si dependencia caída)
+Ready: `GET /ready` (Mongo/Redis según config; 503 si dependencia caída). El detalle `checks` solo con `Authorization: Bearer <METRICS_TOKEN>` (ADR-050)
 Metrics: `GET /metrics` (Prometheus text si `METRICS_ENABLED=true`; **404** si `false`)
 Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
@@ -16,9 +16,10 @@ Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| `POST` | `/api/v1/auth/register` | No | Alta de usuario (`student`). Password ≥8, mayúsculas, minúsculas y dígito. |
-| `POST` | `/api/v1/auth/token` | No | OAuth2 password: campo `username` = **email**. Devuelve JWT. |
+| `POST` | `/api/v1/auth/register` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). Alta de usuario (`student`). Password ≥8, mayúsculas, minúsculas y dígito. |
+| `POST` | `/api/v1/auth/token` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). OAuth2 password: campo `username` = **email**. Devuelve JWT. |
 | `GET` | `/api/v1/auth/providers` | No | Claves públicas de Google y Clerk. `null` si no están configuradas. La secreta de Clerk no se devuelve. |
+| `POST` | `/api/v1/auth/google` | No | Con `AUTH_MODE=clerk`, 404 (ADR-050). Entrar con Google: recibe el ID token (`credential`) de Google Identity Services, lo verifica y devuelve el mismo JWT que `/auth/token`. Sin cuenta con ese correo, la crea; con cuenta, la vincula. |
 
 **Códigos frecuentes:** `201` register, `200` token, `409` conflicto genérico, `401` credenciales, `422` validación, `429` rate limit.
 
@@ -28,7 +29,8 @@ Raíz: `GET /` → redirect a `/docs` o JSON de servicio si docs off.
 
 | Método | Ruta | Auth | Roles | Descripción |
 |--------|------|------|-------|-------------|
-| `GET` | `/api/v1/users/me` | JWT | cualquiera activo | Perfil del token |
+| `GET` | `/api/v1/users/me` | JWT | cualquiera activo | Perfil del token, con `onboarding_completed` |
+| `POST` | `/api/v1/users/me/onboarding` | JWT | cualquiera activo | Marca el tutorial de bienvenida como visto. Idempotente ([ADR-038](adr/ADR-038-tutorial-de-bienvenida.md)) |
 | `GET` | `/api/v1/users/` | JWT | `admin` | Listar usuarios |
 | `DELETE` | `/api/v1/users/{user_id}` | JWT | `admin` | Desactivar usuario (`204`) |
 
@@ -76,7 +78,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 | `POST` | `/api/v1/chats/generate-title` | Generar un título breve desde 1–5 mensajes; no modifica ningún chat. De 1 a 7 palabras: más largo se recorta, y solo una respuesta vacía del proveedor da error |
 | `GET` | `/api/v1/chats/{chat_id}` | Chat con sus mensajes |
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
-| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje. Si `role="user"`, **el tutor responde en la misma llamada**, el turno cuenta como evidencia y su mensaje queda persistido con el envelope en `metadata`. Para una nota que no debe disparar turno, usa `role="system"` |
+| `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje (`content` hasta **20 000** caracteres; `role` solo `user` o `system`, `assistant` → 422: [ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md), [ADR-046](adr/ADR-046-tope-del-chat-20000.md)). Si `role="user"`, **el tutor responde en la misma llamada**, el turno cuenta como evidencia y su mensaje queda persistido con el envelope en `metadata`. Para una nota que no debe disparar turno, usa `role="system"` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
 | `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
@@ -87,7 +89,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 |-------|---------|
 | `type` | `answer`, `explanation`, `hint`, `quiz`, `celebration`, `error` |
 | `emotion` | `calm`, `encouraging`, `patient`, `celebratory` |
-| `payload` | `content`, `grounded`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)). `grounded=false` = chat sin material: conversación, no tutoría adaptativa |
+| `payload` | `content`, `grounded`, `mode`, `difficulty`, `cognitive_style`, `focus_concepts`, `session_step`, `intent`, `practice_before_advance`, `chunk_explanation`, y `celebrated_concept` cuando hay hito ([ADR-009](adr/ADR-009-contabilidad-y-canal-positivo.md)). `visuals` (`[{kind: "mermaid", diagram, source}]`) cuando la respuesta trae un esquema validado ([ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md)). `grounded=false` = chat sin material: conversación, no tutoría adaptativa |
 
 El envelope es determinista: lo decide el dominio, no el modelo.
 
@@ -97,7 +99,7 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `DELETE` | `/api/v1/users/me` | **Borra la cuenta y todos sus datos**, sin vuelta atrás. Body `{ "password": "…" }`: contraseña incorrecta → `403`; después el token da `401`. Límite 5/min ([ADR-019](adr/ADR-019-borrar-la-cuenta-y-textos-legales.md)) |
+| `DELETE` | `/api/v1/users/me` | **Borra la cuenta y todos sus datos**, sin vuelta atrás. Cómo se confirma: cuenta propia, `{ "password": "…" }`; Google, `{ "google_id_token": "…" }`; Clerk, body vacío y una verificación de identidad en Clerk de hace ≤ 10 min (claim `fva`), si no **403** `reason: "reverification_required"`. Las cuentas de Clerk se borran primero en Clerk; si Clerk falla, **503** y no se borra nada. Después el token da `401`. Límite 5/min ([ADR-019](adr/ADR-019-borrar-la-cuenta-y-textos-legales.md), [ADR-041](adr/ADR-041-borrar-cuentas-de-clerk.md)) |
 | `GET` | `/api/v1/legal` | Lista de textos legales: `slug`, `title`, `version`. Público |
 | `GET` | `/api/v1/legal/{slug}` | `terminos`, `privacidad` o `cookies`: `markdown`, `version`, y `completo`/`pendiente` mientras queden huecos sin rellenar. Público |
 
@@ -108,7 +110,7 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 | `POST` | `/api/v1/quizzes/diagnostic` | **Diagnóstico de entrada sobre un tema, sin material.** Body `{ "topic": "ecuaciones" }`. Devuelve una escalera de 6 ítems **fácil→media→difícil** sobre el tema y sus prerrequisitos, con `document_id: null` y `topic` canónico. Se responde en `/quizzes/{id}/attempts` como cualquier quiz ([ADR-016](adr/ADR-016-diagnostico-de-entrada.md)) |
 | `POST` | `/api/v1/quizzes/practice` | **Práctica sobre un tema, sin material y sin tocar el nivel.** Body `{ "topic": "fracciones", "num_questions": 5 }` (1–20, por defecto 5). La dificultad sigue al nivel guardado del tema. El intento trae `placement: null` y deja evidencia por concepto, pero no cambia `level_by_topic`. 422 fuera de rango, 502 si falla el modelo ([ADR-020](adr/ADR-020-pedir-un-cuestionario.md)) |
 | `GET` | `/api/v1/quizzes/{quiz_id}` | Quiz propio sin respuestas correctas |
-| `POST` | `/api/v1/quizzes/{quiz_id}/attempts` | Enviar intento `{ "answers": { "0": "A", "1": "C" } }`; califica en servidor y revela correctas |
+| `POST` | `/api/v1/quizzes/{quiz_id}/attempts` | Enviar intento `{ "answers": { "0": "A", "1": "C" } }`; califica en servidor y revela correctas. Una nivelación o prueba de paso se responde **una vez**: reenviarla da **409** ([ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md)). Repetir un quiz de práctica está permitido, pero no cuenta como evidencia ([ADR-044](adr/ADR-044-reintentar-no-es-evidencia.md)) |
 
 ---
 
@@ -121,17 +123,36 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 | `GET` | `/api/v1/learning/me/preferences` | `{ "explanation_style": "analogy" | null }` ([ADR-022](adr/ADR-022-estilo-elegido-y-modo-libre-adaptado.md)) |
 | `PUT` | `/api/v1/learning/me/preferences` | **Elegir cómo quiero que me expliquen.** Body `{ "explanation_style": … }` con `simple` · `step_by_step` · `analogy` · `visual` · `mathematical` · `technical`, o `null` = que decida LARIA. El campo es obligatorio (422 si falta o no es un estilo). Vale para todos los temas y para chats con y sin material; lo que se pida en un mensaje gana en ese turno |
 | `POST` | `/api/v1/learning/paths/from-topic` | **Ruta de un tema tras la nivelación** ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md)). Body `{ "topic": "fracciones" }`. Idempotente. Módulos con `kind` (`content` · `prerequisite`) y `status` (incluye `assumed`: prerrequisito sin medir dado por sabido). `teaching.phase` = `assessment` hasta que haya nivelación del tema |
-| `POST` | `/api/v1/learning/paths/{id}/lesson` | **Paso actual de la clase**: `markdown` (explicación + ejemplo) y `check` (2 preguntas, sin respuestas). Si ya se entregó y espera respuesta, devuelve el MISMO. 409 sin nivelación; `check: null` si la ruta está completada; 502 si el modelo falla |
+| `POST` | `/api/v1/learning/paths/{id}/lesson` | **Paso actual de la clase**: `markdown` (explicación + ejemplo), `check` (2 preguntas, sin respuestas) y `visuals` (esquemas validados del markdown, [ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md)). Si ya se entregó y espera respuesta, devuelve el MISMO. 409 sin nivelación; `check: null` si la ruta está completada; 502 si el modelo falla |
 | `POST` | `/api/v1/learning/paths/{id}/check` | Body `{ "quiz_id": "…", "answers": {"0": "B", "1": "A"} }`. Califica en servidor (evidencia al perfil como cualquier quiz) y devuelve `outcome` (`understood` · `partial` · `not_understood`), respuestas correctas, `next` (`phase`, `concept_title`, `variant`, `reason`) y la ruta. 409 si no es la comprobación pendiente |
 | `GET` | `/api/v1/learning/paths` | Rutas de aprendizaje del estudiante. El mastery y el estado de cada módulo se **proyectan** desde el perfil en cada lectura ([ADR-008](adr/ADR-008-progreso-derivado-no-declarado.md)) |
 | `POST` | `/api/v1/learning/paths` | Crear una ruta (plan de módulos y prerrequisitos) |
 | `GET` | `/api/v1/learning/paths/{path_id}` | Ruta por id, con el progreso proyectado |
-| `DELETE` | `/api/v1/learning/paths/{path_id}` | Borrar una ruta |
+| `DELETE` | `/api/v1/learning/paths/{path_id}` | Borrar una clase (`204`; ajena o ya borrada → `404`). Conserva lo aprendido y el nivel del tema: recrearla no repite la nivelación |
+| `POST` | `/api/v1/learning/paths/{path_id}/passage-test` | **Prueba de paso de esta ruta** al terminar un tramo ([ADR-042](adr/ADR-042-prueba-de-paso-de-la-ruta.md)): preguntas sobre los módulos estudiados, con la ronda de su nivel; no pide tema ni crea otra ruta. Se responde en `/quizzes/{id}/attempts`; si sube de nivel, la siguiente `/lesson` abre el tramo siguiente. `201`; `404` ruta ajena; `409` si el tramo no está terminado o no hay tramo siguiente; `422` tema bloqueado; `502` el modelo falló. Límite 6/min |
+| `GET` | `/api/v1/learning/paths/{path_id}/next` | Hasta 3 sugerencias de cómo seguir ([ADR-034](adr/ADR-034-como-seguir-tras-una-ruta.md)): `level_up`, `advance` o `related`, con `needs_placement` |
+| `GET` | `/api/v1/learning/me/study-goals` | Metas de estudio: `session_minutes` y `daily_goal_minutes` |
+| `PUT` | `/api/v1/learning/me/study-goals` | Elegir duración de sesión (10, 20, 30, 45 o `null`) y objetivo diario (10, 15, 30, 45, 60 o `null`) |
+| `POST` | `/api/v1/learning/me/study-time` | Aviso de tiempo de estudio, cada minuto desde la clase, con la zona horaria IANA. Cada aviso suma como mucho 60 s; varias pestañas no cuentan doble. Devuelve el resumen del día |
+| `GET` | `/api/v1/learning/me/study-time` | Tiempo estudiado, objetivo y racha |
 
 > No existe endpoint para escribir el mastery de un módulo: el progreso se gana con evidencia
 > (quizzes, tutoría), no se declara.
 
-El perfil se actualiza vía projector a partir de `TutorQuestionAskedEvent` y `QuizAttemptCompletedEvent` (bus `memory` o `outbox`).
+El perfil se actualiza vía projector a partir de `TutorQuestionAskedEvent` y `QuizAttemptCompletedEvent` (bus `memory` o `outbox`). Diagrama: [`docs/diagramas/laria-evidencia.png`](../../docs/diagramas/laria-evidencia.png).
+
+**La clase, en orden:** nivelación (`/quizzes/diagnostic`) → `POST /paths/from-topic` → `/lesson` ↔ `/check` hasta terminar el tramo → `/passage-test` → `/quizzes/{id}/attempts` → si sube, `/lesson` abre el tramo siguiente en la misma ruta. `/lesson` responde **409** sin nivelación del tema ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md), [ADR-037](adr/ADR-037-rutas-por-tramos.md)).
+
+---
+
+## Voz — `/speech`
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/speech/config` | No | Si la voz está disponible (`enabled`) y cuántos caracteres admite por petición |
+| `GET` | `/api/v1/speech/voices` | JWT | Voces disponibles (3 masculinas y 3 femeninas) |
+| `PUT` | `/api/v1/speech/voice` | JWT | Elegir la voz del tutor; se guarda en el perfil |
+| `POST` | `/api/v1/speech` | JWT | Lee en voz alta un trozo de respuesta: `audio/mpeg` en streaming. El texto se limpia antes (sin markdown, fórmulas complejas ni código). Máximo 1200 caracteres hablables: el cliente trocea por frases. **204** si no queda nada que decir; **503** si la voz está apagada o el proveedor falla |
 
 ---
 
@@ -146,14 +167,14 @@ Whitelist en dominio (`Subject`), entre otros: Matemática, Ciencias, Física, Q
 | Código | Significado |
 |--------|-------------|
 | `401` | Token ausente/inválido/usuario inactivo |
-| `403` | Rol insuficiente (p. ej. admin) |
+| `403` | Rol insuficiente (p. ej. admin), contraseña incorrecta al borrar la cuenta o falta reverificar en Clerk (`reason: "reverification_required"`) |
 | `404` | Recurso no encontrado **o** no autorizado (ownership) |
-| `409` | Conflicto de registro (email/username ya existentes) |
+| `409` | Conflicto: registro con email ya usado; nivelación o prueba de paso ya respondida; `/lesson` sin nivelación; prueba de paso no disponible |
 | `413` | Upload supera `DOCUMENT_MAX_UPLOAD_BYTES` |
-| `422` | Validación de body/query/path (UUID malformado, subject inválido, contraseña débil) |
+| `422` | Validación de body/query/path (UUID malformado, subject inválido, contraseña débil, mensaje de más de 20 000 caracteres) o tema bloqueado por el filtro de seguridad (`reason: "unsafe_topic"`, [ADR-036](adr/ADR-036-filtro-de-temas.md)) |
 | `429` | Rate limit |
 | `502` | Fallo del proveedor de IA |
-| `503` | `/ready` degradado (Mongo/Redis no alcanzables) |
+| `503` | `/ready` degradado (Mongo/Redis no alcanzables), voz no disponible, o Clerk no responde al borrar una cuenta |
 
 ### Ops
 

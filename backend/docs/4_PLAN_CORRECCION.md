@@ -233,3 +233,29 @@ Fase 1 (datos) ──► Fase 2 (lazo) ──► Fase 3 (producción) ──► 
 
 La UI/UX y la implementación de los cinco cambios del cliente. Nuestro entregable ahí es la guía, el
 script de contrato y el endpoint que falta; el resto es de quien lleva el front.
+
+---
+
+## Estado y pendientes a 14-oct-2026
+
+Las fases de este plan quedaron atrás: el servicio es persistente (Atlas + Upstash + R2), el lazo
+de evidencia está cerrado y la clase por tramos está en producción (ADR-028 a ADR-046). Lo que
+queda, por prioridad:
+
+1. ~~**Producción de verdad (fase 3).**~~ Hecho el 19-oct-2026: Render corre con
+   `APP_ENV=production` y `EVENT_BUS_BACKEND=outbox`. Arrancó limpio, `/ready` en verde y el outbox
+   sin eventos pendientes. Queda vigilar el primer reinicio con eventos en vuelo
+   ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)).
+2. **Mover el servicio a `main`** ([ADR-047](adr/ADR-047-render-despliega-main.md)) en el dashboard
+   de Render. El blueprint ya lo dice; el servicio vivo sigue en `feature/backend`.
+3. **`CORS_ORIGINS` en Render con `http://localhost:3000`**, para desarrollar el frontend contra
+   producción. Está en `render.yaml`, pero el Blueprint no lo sincronizó.
+4. **Que no se duerma:** `keep-warm` de GitHub se ejecuta cada 4–5 h en vez de cada 10 min. Un ping
+   externo (UptimeRobot, cron-job.org) lo resolvería.
+5. **Idioma del estudiante** (plan pendiente de ADR): el tutor responde solo en español.
+6. **Ronda avanzada:** ~40 % de las «difíciles» aún se resuelven en un paso
+   ([ADR-045](adr/ADR-045-reparto-y-rubrica-de-la-ronda-avanzada.md)); si el aprobado sigue alto,
+   un evaluador que las reclasifique.
+7. **Volumen de Atlas:** 2.4 MB de 512 MB hoy. Revisarlo con `scripts/mongo_volumen.py`; si un chat
+   se acerca a los 16 MB, mover `messages` a su colección ([mongodb-schema.md](mongodb-schema.md#volumen-y-capacidad)).
+8. **Textos legales:** quedan huecos `[[COMPLETAR]]` (`GET /legal/{slug}` devuelve `pendiente`).
