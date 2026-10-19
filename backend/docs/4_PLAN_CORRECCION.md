@@ -242,10 +242,10 @@ Las fases de este plan quedaron atrás: el servicio es persistente (Atlas + Upst
 de evidencia está cerrado y la clase por tramos está en producción (ADR-028 a ADR-046). Lo que
 queda, por prioridad:
 
-1. **Producción de verdad (fase 3 pendiente).** Render corre con `APP_ENV=development` y
-   `EVENT_BUS_BACKEND=memory`. Pasar a `production` + `outbox` activa las comprobaciones de arranque
-   y deja de perder eventos en un reinicio. Antes, comprobar el claim con lease del outbox
-   ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)) con una réplica.
+1. ~~**Producción de verdad (fase 3).**~~ Hecho el 19-oct-2026: Render corre con
+   `APP_ENV=production` y `EVENT_BUS_BACKEND=outbox`. Arrancó limpio, `/ready` en verde y el outbox
+   sin eventos pendientes. Queda vigilar el primer reinicio con eventos en vuelo
+   ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)).
 2. **Mover el servicio a `main`** ([ADR-047](adr/ADR-047-render-despliega-main.md)) en el dashboard
    de Render. El blueprint ya lo dice; el servicio vivo sigue en `feature/backend`.
 3. **`CORS_ORIGINS` en Render con `http://localhost:3000`**, para desarrollar el frontend contra

@@ -59,7 +59,7 @@ No es un chatbot con historial: responder bien no se toma como prueba de compren
 - **Dos fuentes:** un quiz respondido (ítems calificados) y un turno del tutor (lo que dijo el estudiante). El ítem calificado pesa el doble.
 - **Un solo escritor:** el projector aplica cada evento una vez y es lo único que guarda el perfil. La clase y el chat lo leen para decidir.
 - **Reintentar no es evidencia:** tras el primer intento se ven las correctas, así que repetir el quiz cuenta como práctica (ADR-044).
-- **El bus, hoy:** en producción los eventos van por el bus en memoria (`EVENT_BUS_BACKEND=memory`). Si el proceso se reinicia en mitad de un evento, ese evento se pierde. El outbox en Mongo está implementado y probado, pero no activado.
+- **El bus:** desde el 19-oct-2026 producción usa el outbox en Mongo (`EVENT_BUS_BACKEND=outbox`, `APP_ENV=production`): un evento en vuelo sobrevive a un reinicio y el arranque comprueba la configuración de producción.
 
 ## Dónde viven los datos
 

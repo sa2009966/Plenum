@@ -4,9 +4,8 @@
 >
 > - **Persistente:** `DB_PROVIDER=mongodb` (Atlas), `CACHE_BACKEND=redis` (Upstash), `ORIGINAL_STORAGE=r2`.
 >   Es el escalón «Persistente» de la tabla de abajo; la fase 1 está cerrada.
-> - **Sigue en `APP_ENV=development` y `EVENT_BUS_BACKEND=memory`:** las comprobaciones de
->   producción de `validate_security_settings` no se ejecutan, y un evento en vuelo se pierde si el
->   proceso se reinicia. Es el escalón que falta (fase 3).
+> - **`APP_ENV=production` y `EVENT_BUS_BACKEND=outbox` desde el 19-oct-2026:** el arranque
+>   ejecuta las comprobaciones de producción y un evento en vuelo sobrevive a un reinicio (fase 3).
 > - **Rama:** el servicio vivo sigue `feature/backend`. [ADR-047](adr/ADR-047-render-despliega-main.md)
 >   decide pasar a `main`; el cambio en `render.yaml` no mueve el servicio existente: hay que
 >   cambiarlo en Settings → Branch.
