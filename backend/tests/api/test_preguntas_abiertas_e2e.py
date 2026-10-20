@@ -310,3 +310,16 @@ def test_las_preferencias_dicen_si_las_abiertas_estan_activas(entorno, monkeypat
     # Es de solo lectura: mandarlo en el PUT no cambia nada.
     r = c.put("/api/v1/learning/me/preferences", headers=h, json={"open_questions_enabled": False})
     assert r.status_code == 200 and r.json()["open_questions_enabled"] is True
+
+
+def test_un_body_vacio_en_la_clase_y_la_prueba_de_paso_no_es_422(entorno):
+    """El cliente manda `{}` cuando las abiertas están apagadas: el body es opcional."""
+    c, _, _ = entorno
+    h = _auth(c)
+    quiz = c.post("/api/v1/quizzes/diagnostic", headers=h, json={"topic": "programacion"}).json()
+    c.post(f"/api/v1/quizzes/{quiz['id']}/attempts", headers=h, json={"answers": _respuestas(quiz)})
+    ruta = c.post("/api/v1/learning/paths/from-topic", headers=h, json={"topic": "programacion"}).json()
+
+    assert c.post(f"/api/v1/learning/paths/{ruta['id']}/lesson", headers=h, json={}).status_code == 200
+    # Sin tramo terminado la prueba de paso es 409, nunca 422 por el body.
+    assert c.post(f"/api/v1/learning/paths/{ruta['id']}/passage-test", headers=h, json={}).status_code == 409
