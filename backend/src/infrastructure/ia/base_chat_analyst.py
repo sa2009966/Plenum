@@ -16,6 +16,8 @@ from src.domain.ports.chat_title_generator import (
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.lesson_generator import Lesson, LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.metrics_port import MetricsPort
+from src.domain.open_answers import OpenQuestion, RubricJudgement
+from src.domain.ports.open_answer_judge import OpenAnswerJudge
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz, QuizQuestion
@@ -126,7 +128,7 @@ _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
 
 
-class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator):
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator, OpenAnswerJudge):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -177,6 +179,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         max_tokens: int | None = None,
         task: str = "chat",
         json_mode: bool = False,
+        temperature: float = 0.3,
     ) -> str:
         use_model = model or self.model
         payload = {
@@ -185,7 +188,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
-            "temperature": 0.3,
+            "temperature": temperature,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
@@ -287,14 +290,18 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             raise IAAnalysisError(_MSG_RESPUESTA)
         return resumen
 
-    async def _chat_json(self, system_prompt: str, user_message: str, *, model: str | None) -> dict:
+    async def _chat_json(
+        self, system_prompt: str, user_message: str, *, model: str | None, temperature: float = 0.3, task: str = "chat"
+    ) -> dict:
         """Pide JSON y lo parsea. Si aun así llega roto, reintenta una vez.
 
         Un solo reintento: dos fallos seguidos ya no son mala suerte, y el
         estudiante está esperando. El error sigue siendo `IAAnalysisError` (502).
         """
         for intento in (1, 2):
-            raw = await self._chat(system_prompt, user_message, model=model, json_mode=True)
+            raw = await self._chat(
+                system_prompt, user_message, model=model, json_mode=True, temperature=temperature, task=task
+            )
             try:
                 return self._extract_json(raw)
             except IAAnalysisError:
@@ -495,6 +502,20 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             learner=learner,
         )
         return await self._chat(prompt.system, prompt.user, model=model)
+
+    async def judge(self, question: OpenQuestion, answer: str) -> RubricJudgement:
+        """Juicio de una respuesta abierta (ADR-052). Temperatura 0: corregir no es crear."""
+        prompt = self._policy.judge_open_answer(question, answer)
+        data = await self._chat_json(prompt.system, prompt.user, model=None, temperature=0.0, task="judge")
+        puntos = data.get("points")
+        if not isinstance(puntos, list) or len(puntos) != len(question.key_points):
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return RubricJudgement(
+            covered=tuple(isinstance(p, dict) and p.get("covered") is True for p in puntos),
+            contradicts=data.get("contradicts") is True,
+            feedback=str(data.get("feedback") or "")[:600],
+            quotes=tuple(str(p.get("quote") or "") if isinstance(p, dict) else "" for p in puntos),
+        )
 
     async def answer_question_stream(
         self,
