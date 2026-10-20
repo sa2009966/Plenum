@@ -8,6 +8,8 @@ from uuid import UUID
 
 from src.domain.concept_identity import canonicalize_concept
 from src.domain.adaptive_signals import DEFAULT_CUTOFFS, Signal, SignalKind
+from src.domain import memory_model
+from src.domain.memory_model import ReviewEntry
 
 
 DEFAULT_HALF_LIFE_DAYS = 14.0
@@ -29,6 +31,10 @@ def _utc_now() -> datetime:
 
 def _norm_concept(label: str) -> str:
     return canonicalize_concept(label)
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 class EvidenceKind(str, Enum):
@@ -153,6 +159,29 @@ class ConceptMastery:
     # total (ADR-007).
     weak_evidence_count: int = 0
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS
+    #: Último repaso CALIFICADO (ADR-051). `last_practiced_at` también se mueve con
+    #: el chat; la memoria solo se mide con ítems corregidos en servidor.
+    last_reviewed_at: datetime | None = None
+    #: Repasos calificados, el más antiguo primero; acotado a MAX_REVIEW_LOG.
+    review_log: list[ReviewEntry] = field(default_factory=list)
+
+    def record_review(self, score_ratio: float, at: datetime | None = None) -> None:
+        """Un repaso calificado de este concepto: ajusta la vida media (ADR-051).
+
+        Se llama una vez por concepto y por intento, no por ítem: ocho preguntas
+        del mismo concepto en un quiz son un repaso, no ocho.
+        """
+        momento = _aware(at or _utc_now())
+        if self.last_reviewed_at is None:
+            self.half_life_days = memory_model.first_half_life(score_ratio)
+        else:
+            transcurrido = max(0.0, (momento - _aware(self.last_reviewed_at)).total_seconds() / 86400.0)
+            self.half_life_days = memory_model.next_half_life(self.half_life_days, transcurrido, score_ratio)
+        self.last_reviewed_at = momento
+        self.review_log.append(
+            ReviewEntry(at=momento, score_ratio=max(0.0, min(1.0, score_ratio)), half_life_days=self.half_life_days)
+        )
+        self.review_log = self.review_log[-memory_model.MAX_REVIEW_LOG:]
 
     @property
     def measured_evidence_count(self) -> int:
@@ -472,6 +501,7 @@ class StudentProfile:
         concept_results: tuple[tuple[str, float], ...] = (),
         latency_ms: float | None = None,
         help_level: float = 0.0,
+        at: datetime | None = None,
     ) -> None:
         entry = self.mastery_by_document.get(document_id)
         if entry is None:
@@ -486,6 +516,7 @@ class StudentProfile:
             latency_ms=latency_ms,
             help_level=help_level,
         )
+        self._record_reviews(concept_results, at)
         # Sin conceptos etiquetados, el intento habla por el documento.
         self._track_batch_velocity(deltas, fallback=entry.mastery - before)
         self._cerrar_lote(missed_concepts)
@@ -526,6 +557,7 @@ class StudentProfile:
         self,
         concept_results: tuple[tuple[str, float], ...] = (),
         missed_concepts: tuple[str, ...] = (),
+        at: datetime | None = None,
     ) -> None:
         """Ítems calificados de un diagnóstico de entrada, sin documento (ADR-016).
 
@@ -536,6 +568,7 @@ class StudentProfile:
         """
         self.total_attempts += 1
         deltas = self._apply_graded_items(concept_results, document_id=None)
+        self._record_reviews(concept_results, at)
         self._track_batch_velocity(deltas)
         self._cerrar_lote(missed_concepts)
 
@@ -568,6 +601,18 @@ class StudentProfile:
             if delta is not None:
                 deltas.append(delta)
         return deltas
+
+    def _record_reviews(
+        self, concept_results: tuple[tuple[str, float], ...], at: datetime | None
+    ) -> None:
+        """Un repaso por concepto y por intento, con la nota media de sus ítems (ADR-051)."""
+        por_concepto: dict[str, list[float]] = {}
+        for concept, ratio in concept_results:
+            key = _norm_concept(concept)
+            if key and key in self.mastery_by_concept:
+                por_concepto.setdefault(key, []).append(float(ratio))
+        for key, notas in por_concepto.items():
+            self.mastery_by_concept[key].record_review(sum(notas) / len(notas), at)
 
     def _cerrar_lote(self, missed_concepts: tuple[str, ...]) -> None:
         """Errores, memoria de malentendidos y ritmo: común a quiz y diagnóstico."""

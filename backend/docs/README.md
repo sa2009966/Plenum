@@ -101,5 +101,6 @@ Por qué el sistema es así. No se editan: una decisión nueva va en un ADR nuev
 | [ADR-047](adr/ADR-047-render-despliega-main.md) | Render despliega `main` |
 | [ADR-048](adr/ADR-048-esquemas-en-las-explicaciones.md) | El tutor dibuja esquemas en Mermaid, y solo llegan los que se pueden pintar |
 | [ADR-050](adr/ADR-050-proxy-de-vercel-y-borde-del-backend.md) | El frontend llama por un rewrite de Vercel; `azp` obligatorio, cuentas propias cerradas en modo Clerk, CORS sin credenciales y `/ready` sin detalle público |
+| [ADR-051](adr/ADR-051-memoria-adaptativa-y-agenda-de-repasos.md) | La vida media de cada concepto se adapta con los repasos calificados; agenda de repasos y curva del olvido (medido frente a estimado) |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.

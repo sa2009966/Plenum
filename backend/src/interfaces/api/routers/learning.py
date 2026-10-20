@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.learning_query_service import LearningQueryService
@@ -29,6 +29,7 @@ from src.interfaces.api.dependencies import (
     get_learning_preferences_service,
     get_learning_query_service,
     get_profile_repo,
+    get_review_schedule_service,
     get_study_time_service,
     get_teaching_service,
 )
@@ -48,9 +49,16 @@ from src.interfaces.schemas.learning_path_schemas import (
     StudyDayItem,
     StudyGoals,
     StudyPing,
+    EstimatedPoint,
+    MeasuredPoint,
+    RetentionCurveResponse,
+    ReviewAgendaResponse,
+    ReviewCountsResponse,
+    ReviewItemResponse,
     StudySummaryResponse,
     TeachingStateResponse,
 )
+from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
     DocumentMasteryItem,
@@ -638,6 +646,78 @@ async def get_study_time(
     tz: Optional[str] = None,
 ):
     return _resumen(await service.summary(UUID(current_user_id), tz))
+
+
+@router.get(
+    "/me/reviews",
+    response_model=ReviewAgendaResponse,
+    summary="Agenda de repasos",
+    description=(
+        "Conceptos con evidencia calificada y cuándo repasarlos (ADR-051). `status` se calcula con el "
+        "día local de `tz` (IANA; UTC si falta o no existe). `counts` cuenta el total aunque `limit` "
+        "recorte la lista. `estimated_retention` es una estimación del modelo de olvido. El projector "
+        "aplica los intentos de forma asíncrona: tras un quiz puede tardar unos segundos en verse."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def get_review_agenda(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[ReviewScheduleService, Depends(get_review_schedule_service)],
+    tz: Optional[str] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    a = await service.agenda(UUID(current_user_id), tz, limit)
+    return ReviewAgendaResponse(
+        generated_at=a.generated_at,
+        desired_retention=a.desired_retention,
+        counts=ReviewCountsResponse(**a.counts),
+        items=[
+            ReviewItemResponse(
+                concept=i.concept,
+                label=i.label,
+                status=i.status,
+                estimated_retention=i.estimated_retention,
+                next_review_at=i.next_review_at,
+                last_reviewed_at=i.last_reviewed_at,
+                half_life_days=i.half_life_days,
+                reviews=i.reviews,
+                mastery=i.mastery,
+                path_id=str(i.path_id) if i.path_id else None,
+            )
+            for i in a.items
+        ],
+    )
+
+
+@router.get(
+    "/me/reviews/curve",
+    response_model=RetentionCurveResponse,
+    summary="Curva del olvido de un concepto",
+    description=(
+        "`measured`: repasos calificados reales. `estimated`: la curva del modelo entre repasos y hasta "
+        "pasado el próximo (máx. 60 puntos). 404 si el concepto no tiene evidencia calificada (ADR-051)."
+    ),
+    responses={**RESP_401_UNAUTHORIZED, 404: {"description": "Concepto sin repasos."}},
+)
+async def get_retention_curve(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[ReviewScheduleService, Depends(get_review_schedule_service)],
+    concept: Annotated[str, Query(min_length=1, max_length=200)],
+):
+    try:
+        c = await service.curve(UUID(current_user_id), concept)
+    except ConceptWithoutReviews:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ese concepto aún no tiene repasos.")
+    return RetentionCurveResponse(
+        concept=c.concept,
+        label=c.label,
+        desired_retention=c.desired_retention,
+        half_life_days=c.half_life_days,
+        next_review_at=c.next_review_at,
+        measured=[MeasuredPoint(at=t, score_ratio=r) for t, r in c.measured],
+        estimated=[EstimatedPoint(at=t, retention=r) for t, r in c.estimated],
+        note=c.note,
+    )
 
 
 

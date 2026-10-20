@@ -344,7 +344,7 @@ class LearningEvidenceProjector:
                 # acabaría sacando `weakest_documents` en las recomendaciones,
                 # apuntando a un documento que no existe.
                 profile.record_diagnostic_result(
-                    concept_results=results_t, missed_concepts=missed_t
+                    concept_results=results_t, missed_concepts=missed_t, at=event.timestamp
                 )
                 if tema_nivelacion and ronda_nivelacion:
                     # El veredicto se escribe aquí y solo aquí: el servicio lo
@@ -365,6 +365,7 @@ class LearningEvidenceProjector:
                     score_ratio=ratio,
                     missed_concepts=missed_t,
                     concept_results=results_t,
+                    at=event.timestamp,
                 )
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)

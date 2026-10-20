@@ -455,6 +455,14 @@ def get_quiz_service() -> QuizService:
     )
 
 
+def get_review_schedule_service() -> "ReviewScheduleService":
+    from src.application.services.review_service import ReviewScheduleService
+
+    return ReviewScheduleService(
+        get_profile_repo(), get_learning_path_repo(), desired_retention=settings.REVIEW_DESIRED_RETENTION
+    )
+
+
 def get_learning_query_service() -> LearningQueryService:
     return LearningQueryService(
         attempt_repository=get_attempt_repo(),

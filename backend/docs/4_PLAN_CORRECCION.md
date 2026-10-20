@@ -246,8 +246,8 @@ queda, por prioridad:
    `APP_ENV=production` y `EVENT_BUS_BACKEND=outbox`. Arrancó limpio, `/ready` en verde y el outbox
    sin eventos pendientes. Queda vigilar el primer reinicio con eventos en vuelo
    ([ADR-010](adr/ADR-010-entrega-del-outbox-con-lease.md)).
-2. **Mover el servicio a `main`** ([ADR-047](adr/ADR-047-render-despliega-main.md)) en el dashboard
-   de Render. El blueprint ya lo dice; el servicio vivo sigue en `feature/backend`.
+2. ~~**Mover el servicio a `main`**~~ ([ADR-047](adr/ADR-047-render-despliega-main.md)). Hecho: Render
+   despliega `main` (live `77e2d5d` el 19-oct-2026). El outbox procesó 28 eventos desde el cambio, sin errores.
 3. **`CORS_ORIGINS` en Render con `http://localhost:3000`**, para desarrollar el frontend contra
    producción. Está en `render.yaml`, pero el Blueprint no lo sincronizó.
 4. **Que no se duerma:** `keep-warm` de GitHub se ejecuta cada 4–5 h en vez de cada 10 min. Un ping

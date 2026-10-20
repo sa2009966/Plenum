@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     #: Caracteres por petición: una o dos frases. El cliente trocea la respuesta.
     TTS_MAX_CHARS: int = 1200
     FORGETTING_HALF_LIFE_DAYS: float = 14.0
+    #: Recuerdo estimado que la agenda quiere mantener: el próximo repaso cae
+    #: cuando baja de aquí (ADR-051).
+    REVIEW_DESIRED_RETENTION: float = Field(default=0.9, ge=0.5, le=0.99)
 
     # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:
     # se calibran con datos de outcome, no se tocan a ojo.

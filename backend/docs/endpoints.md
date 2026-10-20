@@ -135,6 +135,8 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 | `PUT` | `/api/v1/learning/me/study-goals` | Elegir duración de sesión (10, 20, 30, 45 o `null`) y objetivo diario (10, 15, 30, 45, 60 o `null`) |
 | `POST` | `/api/v1/learning/me/study-time` | Aviso de tiempo de estudio, cada minuto desde la clase, con la zona horaria IANA. Cada aviso suma como mucho 60 s; varias pestañas no cuentan doble. Devuelve el resumen del día |
 | `GET` | `/api/v1/learning/me/study-time` | Tiempo estudiado, objetivo y racha |
+| `GET` | `/api/v1/learning/me/reviews` | Agenda de repasos (ADR-051): conceptos con evidencia calificada, `status` (`overdue`/`today`/`upcoming`) según el día local de `?tz=`, retención **estimada**, próximo repaso y ruta donde repasar. `?limit=` (1-200, 50); `counts` cuenta siempre el total. Se actualiza de forma asíncrona tras cada intento |
+| `GET` | `/api/v1/learning/me/reviews/curve` | Curva del olvido de `?concept=` (la clave de la agenda): `measured` son los repasos reales; `estimated`, la curva del modelo (máx. 60 puntos). 404 si el concepto no tiene evidencia calificada |
 
 > No existe endpoint para escribir el mastery de un módulo: el progreso se gana con evidencia
 > (quizzes, tutoría), no se declara.
