@@ -452,6 +452,7 @@ def get_quiz_service() -> QuizService:
         strong_model=settings.OPENAI_MODEL_STRONG,
         analyze_service=get_analyze_service(),
         safety=get_content_safety(),
+        open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
     )
 
 

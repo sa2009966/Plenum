@@ -398,6 +398,9 @@ class StudentProfile:
     explanation_style_choice: str = ""
     #: Voz del tutor que eligió (ADR-030). Vacío = la de por defecto.
     voice_choice: str = ""
+    #: Abiertas y de opción múltiple en sus evaluaciones (ADR-053). None = 3 + 3.
+    assessment_open: int | None = None
+    assessment_choice: int | None = None
     #: Minutos por sesión de clase (10/20/30/45); 0 = sin límite (ADR-033).
     session_minutes: int = 0
     #: Objetivo diario en minutos (10/15/30/45/60); 0 = sin objetivo.
@@ -529,6 +532,21 @@ class StudentProfile:
         self.session_minutes = int(session_minutes or 0)
         self.daily_goal_minutes = int(daily_goal_minutes or 0)
         self.updated_at = _utc_now()
+
+    def choose_assessment(self, open_questions: int, choice_questions: int) -> None:
+        from src.domain.assessment import AssessmentMix
+
+        mezcla = AssessmentMix(open_questions, choice_questions)  # ValueError si no vale
+        self.assessment_open, self.assessment_choice = mezcla.open_questions, mezcla.choice_questions
+        self.updated_at = _utc_now()
+
+    def assessment(self):
+        """La mezcla efectiva: la elegida, o 3 + 3."""
+        from src.domain.assessment import DEFAULT_MIX, AssessmentMix
+
+        if self.assessment_open is None or self.assessment_choice is None:
+            return DEFAULT_MIX
+        return AssessmentMix(self.assessment_open, self.assessment_choice)
 
     def choose_voice(self, voice: str | None) -> None:
         self.voice_choice = (voice or "").strip().lower()

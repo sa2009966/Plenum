@@ -17,7 +17,7 @@ from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.services.visuals import extract_diagrams
 from src.domain.services.content_safety import UnsafeTopicError
-from src.interfaces.api.quiz_mappers import quiz_to_public_response
+from src.interfaces.api.quiz_mappers import attempt_question_item, quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
     LearningPathRepository,
@@ -59,10 +59,13 @@ from src.interfaces.schemas.learning_path_schemas import (
     TeachingStateResponse,
 )
 from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
+from src.domain.assessment import AssessmentMix
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
     DocumentMasteryItem,
     LearningHistoryResponse,
+    AssessmentConfig,
+    AssessmentOverride,
     LearningPreferences,
     LearningRecommendationItem,
     PedagogicalMemoryItem,
@@ -253,8 +256,10 @@ async def get_my_preferences(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
 ):
+    yo = UUID(current_user_id)
     return LearningPreferences(
-        explanation_style=await service.explanation_style(UUID(current_user_id))
+        explanation_style=await service.explanation_style(yo),
+        assessment=_config(await service.assessment(yo)),
     )
 
 
@@ -270,10 +275,31 @@ async def put_my_preferences(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
 ):
-    elegido = await service.choose_explanation_style(
-        UUID(current_user_id), body.explanation_style
-    )
-    return LearningPreferences(explanation_style=elegido)
+    yo = UUID(current_user_id)
+    # MERGE: solo cambia lo que viene. Un cliente que manda su estilo no pisa la
+    # mezcla de preguntas, ni al revés (ADR-053).
+    if "explanation_style" in body.model_fields_set:
+        estilo = await service.choose_explanation_style(yo, body.explanation_style)
+    else:
+        estilo = await service.explanation_style(yo)
+    if body.assessment is not None:
+        mezcla = await service.choose_assessment(
+            yo, AssessmentMix(body.assessment.open_questions, body.assessment.choice_questions)
+        )
+    else:
+        mezcla = await service.assessment(yo)
+    return LearningPreferences(explanation_style=estilo, assessment=_config(mezcla))
+
+
+def _mezcla(body: "AssessmentOverride | None") -> AssessmentMix | None:
+    """La mezcla solo para esta vez (ADR-053); None = la preferencia guardada."""
+    if body is None or body.assessment is None:
+        return None
+    return AssessmentMix(body.assessment.open_questions, body.assessment.choice_questions)
+
+
+def _config(mezcla: AssessmentMix) -> AssessmentConfig:
+    return AssessmentConfig(open_questions=mezcla.open_questions, choice_questions=mezcla.choice_questions)
 
 
 async def _projected(
@@ -458,10 +484,11 @@ async def lesson(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[TeachingService, Depends(get_teaching_service)],
+    body: Optional[AssessmentOverride] = None,
 ):
     usuario = UUID(current_user_id)
     try:
-        paso = await service.lesson(usuario, path_id)
+        paso = await service.lesson(usuario, path_id, _mezcla(body))
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     except UnsafeTopicError:
@@ -503,9 +530,10 @@ async def passage_test(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[TeachingService, Depends(get_teaching_service)],
+    body: Optional[AssessmentOverride] = None,
 ):
     try:
-        quiz = await service.passage_test(UUID(current_user_id), path_id)
+        quiz = await service.passage_test(UUID(current_user_id), path_id, _mezcla(body))
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     except PassageTestNotAvailable:
@@ -557,16 +585,7 @@ async def answer_check(
         outcome=r.outcome.value,
         score=r.attempt.score,
         total_points=r.attempt.total_points,
-        questions=[
-            {
-                "index": q.index,
-                "text": q.text,
-                "selected": q.selected,
-                "correct_answer": q.correct_answer,
-                "is_correct": q.is_correct,
-            }
-            for q in r.attempt.questions
-        ],
+        questions=[attempt_question_item(q) for q in r.attempt.questions],
         next=NextStepResponse(
             phase=r.next.phase.value,
             concept=r.next.concept,

@@ -48,6 +48,7 @@ from src.domain.services.diagnostic_planner import (
     round_for,
 )
 from src.domain.services.quiz_quality import ensure_quiz_quality
+from src.domain.assessment import check_layout
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -283,7 +284,7 @@ class TeachingService:
 
     # --- Clase ----------------------------------------------------------------------
 
-    async def lesson(self, user_id: UUID, path_id: UUID) -> LessonStep:
+    async def lesson(self, user_id: UUID, path_id: UUID, assessment=None) -> LessonStep:
         """El paso actual de la clase. Si ya se entregó y espera respuesta, el MISMO.
 
         Así una recarga, otra pestaña u otra petición recuperan exactamente la
@@ -315,12 +316,17 @@ class TeachingService:
 
         modulo = path.module(t.concept)
         vuelta = path.module(t.return_to) if t.return_to else None
+        dificultades, tipos = check_difficulties(t.variant), ()
+        if getattr(self._quiz_service, "open_questions_enabled", False) is True:
+            mezcla = await self._quiz_service.effective_mix(user_id, assessment)
+            dificultades, tipos = check_layout(dificultades, mezcla)
         peticion = LessonRequest(
             topic_label=path.title,
             concept=t.concept,
             concept_title=modulo.title if modulo else t.concept,
             variant=t.variant,
-            check_difficulties=check_difficulties(t.variant),
+            check_difficulties=dificultades,
+            check_kinds=tipos,
             # El nivel del tramo del módulo: un módulo avanzado se explica a nivel
             # avanzado aunque lo pida alguien que aún no lo es del todo (ADR-037).
             level=(modulo.tier if modulo and modulo.tier else None)
@@ -348,7 +354,7 @@ class TeachingService:
         await self._paths.save(path)
         return LessonStep(path, quiz)
 
-    async def passage_test(self, user_id: UUID, path_id: UUID):
+    async def passage_test(self, user_id: UUID, path_id: UUID, assessment=None):
         """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.
 
         Antes el cliente mandaba a la nivelación inicial: pedía escribir el tema (se
@@ -372,7 +378,7 @@ class TeachingService:
             tuple(m.concept for m in estudiados),
             tuple(_lo_estudiado(m) for m in estudiados),
         )
-        return await self._quiz_service.generate_passage_test(plan, user_id)
+        return await self._quiz_service.generate_passage_test(plan, user_id, assessment)
 
     async def answer_check(
         self, user_id: UUID, path_id: UUID, quiz_id: UUID, answers: dict[int, str]

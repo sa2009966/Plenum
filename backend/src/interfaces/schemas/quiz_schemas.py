@@ -1,7 +1,20 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class AssessmentConfig(BaseModel):
+    """Abiertas y de opción múltiple de una evaluación (ADR-053). Por defecto 3 + 3."""
+
+    open_questions: Annotated[int, Field(ge=0, le=10)] = 3
+    choice_questions: Annotated[int, Field(ge=0, le=10)] = 3
+
+    @model_validator(mode="after")
+    def _ni_vacia_ni_examen(self):
+        if not 1 <= self.open_questions + self.choice_questions <= 12:
+            raise ValueError("Una evaluación lleva entre 1 y 12 preguntas.")
+        return self
 
 
 class QuizQuestionPublicItem(BaseModel):
@@ -9,6 +22,9 @@ class QuizQuestionPublicItem(BaseModel):
     text: str
     options: dict[str, str]
     difficulty: str = "medium"
+    #: "choice" u "open" (ADR-053). Una abierta trae `options: {}` y `max_chars`.
+    kind: Literal["choice", "open"] = "choice"
+    max_chars: int | None = None
 
 
 class QuizPublicResponse(BaseModel):
@@ -47,12 +63,29 @@ class QuizAttemptRequest(BaseModel):
     ]
 
 
+class KeyPointResult(BaseModel):
+    text: str
+    covered: bool
+
+
 class AttemptQuestionResultItem(BaseModel):
     index: int
     text: str
+    #: La letra, o el texto que escribió en una abierta.
     selected: str | None
+    #: "" en una abierta.
     correct_answer: str
+    #: En una abierta, solo si el veredicto es `correct`.
     is_correct: bool
+    kind: Literal["choice", "open"] = "choice"
+    #: Crédito 0..1: una abierta puede ser parcial (ADR-053).
+    score: float = 0.0
+    verdict: Literal["correct", "partial", "incorrect", "copied", "empty"] | None = None
+    #: Siempre presente en una abierta, redactado para el estudiante.
+    feedback: str | None = None
+    #: Las ideas clave y la respuesta modelo solo se muestran DESPUÉS de contestar.
+    key_points: list[KeyPointResult] | None = None
+    model_answer: str | None = None
 
 
 class PlacementResult(BaseModel):
@@ -172,18 +205,35 @@ class PracticeRequest(BaseModel):
 
     topic: Annotated[str, Field(min_length=2, max_length=120, description="Tema a practicar")]
     num_questions: Annotated[int, Field(ge=1, le=20)] = 5
+    #: Abiertas y de opción múltiple (ADR-053). Con preguntas abiertas activas, manda
+    #: sobre `num_questions` y sobre la preferencia guardada.
+    assessment: AssessmentConfig | None = None
+
+
+class AssessmentOverride(BaseModel):
+    """Body opcional de la clase y de la prueba de paso: la mezcla solo para esta vez."""
+
+    assessment: AssessmentConfig | None = None
 
 
 ExplanationStyle = Literal["simple", "step_by_step", "analogy", "visual", "mathematical", "technical"]
 
 
 class LearningPreferences(BaseModel):
-    """Cómo quiere el estudiante que le expliquen (ADR-022)."""
+    """Cómo quiere el estudiante que le expliquen (ADR-022) y cómo evaluarle (ADR-053).
+
+    En un PUT, un campo que no viene no cambia: cada pantalla manda solo lo suyo.
+    """
 
     explanation_style: ExplanationStyle | None = Field(
+        default=None,
         description=(
             "simple · step_by_step · analogy · visual · mathematical · technical. "
             "`null` = que lo decida LARIA. Vale para todos los temas; lo que pida en un "
             "mensaje (\"explícamelo paso a paso\") gana en ese turno."
         ),
+    )
+    assessment: AssessmentConfig | None = Field(
+        default=None,
+        description="Mezcla de preguntas de sus evaluaciones. El GET devuelve siempre la efectiva.",
     )

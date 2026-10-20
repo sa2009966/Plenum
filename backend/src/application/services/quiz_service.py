@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 from uuid import UUID
@@ -31,6 +32,8 @@ from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.context_selector import ContextSelector
 from src.domain.services.diagnostic_planner import (
     fit_to_plan,
+    resized,
+    with_open_items,
     PASSING_RATIO,
     PlacementLevel,
     PlacementRound,
@@ -43,6 +46,10 @@ from src.domain.services.diagnostic_planner import (
 from src.domain.services.pedagogical_engine import PedagogicalEngine, TutorIntent
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.value_objects.question import Difficulty
+from src.application.services.open_answer_service import OpenAnswerGradingService
+from src.domain.open_answers import MAX_ANSWER_CHARS
+from src.domain.assessment import DEFAULT_MIX, PLACEMENT_OPEN_ITEMS, AssessmentMix
+from src.domain.ports.open_answer_judge import OpenAnswerJudge
 
 logger = logging.getLogger("laria.quiz")
 
@@ -60,6 +67,19 @@ def repeated_questions(preguntas, previas: tuple[str, ...], umbral: float = 0.75
 
 class QuizAlreadyAnswered(RuntimeError):
     """Una ronda de nivelación ya respondida: para otra, se pide una ronda nueva."""
+
+
+class GraderUnavailable(RuntimeError):
+    """El corrector de abiertas no respondió (ADR-053). El intento NO se guarda."""
+
+
+class AnswerTooLong(RuntimeError):
+    """Una abierta más larga de lo admitido. RuntimeError a propósito: los routers
+    convierten ValueError en 404/422 genéricos, y este 422 lleva `reason` e índice."""
+
+    def __init__(self, index: int) -> None:
+        super().__init__(f"La respuesta {index} supera los {MAX_ANSWER_CHARS} caracteres.")
+        self.index = index
 
 
 class QuizService:
@@ -86,8 +106,15 @@ class QuizService:
         analyze_service=None,
         strong_model: Optional[str] = None,
         safety=None,
+        open_answer_grader: Optional[OpenAnswerGradingService] = None,
+        open_questions_enabled: bool = False,
     ) -> None:
+        self.open_questions_enabled = open_questions_enabled
         self._doc_repo = document_repository
+        # Corrector de abiertas (ADR-052). Por defecto, el mismo analista hace de juez.
+        if open_answer_grader is None and isinstance(ia_analyst, OpenAnswerJudge):
+            open_answer_grader = OpenAnswerGradingService(ia_analyst)
+        self._grader = open_answer_grader
         # Filtro de temas (ADR-036): una nivelación o práctica crea contenido sobre el tema.
         self._safety = safety
         self._quiz_repo = quiz_repository
@@ -176,6 +203,16 @@ class QuizService:
 
         return self._to_public_dto(quiz)
 
+    async def effective_mix(self, user_id: UUID, override: AssessmentMix | None = None) -> AssessmentMix:
+        """La mezcla de esta evaluación: la del body, si no la elegida, si no 3 + 3 (ADR-053)."""
+        if override is not None:
+            return override
+        if self._profile_repo is not None:
+            perfil = await self._profile_repo.find_by_student(user_id)
+            if perfil is not None:
+                return perfil.assessment()
+        return DEFAULT_MIX
+
     async def generate_diagnostic(self, topic: str, user_id: UUID) -> QuizPublicDTO:
         """Diagnóstico de entrada sobre un tema, sin material (ADR-016).
 
@@ -189,10 +226,14 @@ class QuizService:
         # La ronda no la manda el cliente: sale del nivel que el estudiante ya
         # tenga en ese tema. Así el cliente no lleva estado (ADR-017, decisión 4).
         ronda = round_for(nivel)
-        return await self._quiz_por_tema(plan_diagnostic(topic, graph, ronda), user_id)
+        plan = plan_diagnostic(topic, graph, ronda)
+        if self.open_questions_enabled:
+            # Solo abiertas: con opción múltiple se aprobaba adivinando (ADR-053).
+            plan = with_open_items(resized(plan, PLACEMENT_OPEN_ITEMS), PLACEMENT_OPEN_ITEMS)
+        return await self._quiz_por_tema(plan, user_id)
 
     async def generate_practice(
-        self, topic: str, user_id: UUID, num_questions: int = 5
+        self, topic: str, user_id: UUID, num_questions: int = 5, assessment: AssessmentMix | None = None
     ) -> QuizPublicDTO:
         """Cuestionario de práctica sobre un tema, sin material.
 
@@ -204,16 +245,26 @@ class QuizService:
         """
         await self._tema_seguro(topic)
         graph, nivel = await self._grafo_y_nivel(topic, user_id)
-        plan = plan_practice(topic, graph, nivel, num_questions)
+        if self.open_questions_enabled:
+            mezcla = await self.effective_mix(user_id, assessment)
+            plan = with_open_items(plan_practice(topic, graph, nivel, mezcla.total), mezcla.open_questions)
+        else:
+            plan = plan_practice(topic, graph, nivel, num_questions)
         return await self._quiz_por_tema(plan, user_id)
 
-    async def generate_passage_test(self, plan, user_id: UUID) -> QuizPublicDTO:
+    async def generate_passage_test(
+        self, plan, user_id: UUID, assessment: AssessmentMix | None = None
+    ) -> QuizPublicDTO:
         """Prueba de paso de una ruta (ADR-042): el plan ya trae lo estudiado.
 
         Se guarda como una ronda de nivelación del tema: su veredicto sube el nivel
         por el mismo camino (projector) y la ruta abre el tramo siguiente.
         """
         await self._tema_seguro(plan.topic)
+        if self.open_questions_enabled:
+            # Conserva su reparto por dificultad (ADR-045); de la mezcla toma la proporción.
+            mezcla = await self.effective_mix(user_id, assessment)
+            plan = with_open_items(plan, round(plan.total_items * mezcla.open_questions / mezcla.total))
         return await self._quiz_por_tema(plan, user_id)
 
     async def _tema_seguro(self, topic: str) -> None:
@@ -333,7 +384,7 @@ class QuizService:
             # respuesta de un intento muestra las correctas: si se pudiera reenviar,
             # bastaba con fallar, mirarlas y repetirla perfecta para subir de nivel.
             raise QuizAlreadyAnswered(quiz.id)
-        grade = quiz.grade(answers)
+        grade = quiz.grade(answers, await self._corregir_abiertas(quiz, answers))
         attempt = QuizAttemptAggregate.create(
             quiz_id=quiz.id,
             document_id=quiz.document_id,
@@ -375,17 +426,57 @@ class QuizService:
             score=attempt.score,
             total_points=attempt.total_points,
             questions=[
-                AttemptQuestionResultDTO(
-                    index=i,
-                    text=q.text,
-                    selected=answers.get(i),
-                    correct_answer=q.correct_answer,
-                    is_correct=attempt.per_question_correct[i],
-                )
+                self._resultado(i, q, answers.get(i), attempt)
                 for i, q in enumerate(quiz.questions)
             ],
             completed_at=attempt.completed_at,
         )
+
+    async def _corregir_abiertas(self, quiz: QuizAggregate, answers: dict[int, str]) -> dict:
+        """Corrige las abiertas en paralelo ANTES de guardar nada (ADR-053).
+
+        Si el corrector falla, no hay intento: el estudiante reenvía lo que escribió.
+        Guardar un intento con una abierta "a medias" contaría como evidencia falsa.
+        """
+        quiz.validate_answers(answers)
+        abiertas = quiz.open_indexes
+        if not abiertas:
+            return {}
+        for i in abiertas:
+            if len(answers[i] or "") > MAX_ANSWER_CHARS:
+                raise AnswerTooLong(i)
+        if self._grader is None:
+            raise GraderUnavailable("No hay corrector de respuestas abiertas configurado.")
+        try:
+            notas = await asyncio.gather(
+                *(self._grader.grade(quiz.questions[i].as_open_question(), answers[i]) for i in abiertas)
+            )
+        except IAAnalysisError as exc:
+            raise GraderUnavailable(str(exc)) from exc
+        return dict(zip(abiertas, notas))
+
+    @staticmethod
+    def _resultado(i: int, q, selected: str | None, attempt: QuizAttemptAggregate) -> AttemptQuestionResultDTO:
+        base = AttemptQuestionResultDTO(
+            index=i,
+            text=q.text,
+            selected=selected,
+            correct_answer=q.correct_answer,
+            is_correct=attempt.per_question_correct[i],
+            kind=q.kind,
+            score=attempt.score_at(i),
+        )
+        corregida = attempt.open_results.get(i)
+        if q.is_open and corregida:
+            cubiertas = list(corregida.get("covered") or [])
+            base.verdict = corregida.get("verdict")
+            base.feedback = corregida.get("feedback")
+            base.key_points = [
+                (texto, bool(cubiertas[k]) if k < len(cubiertas) else False)
+                for k, texto in enumerate(q.key_points)
+            ]
+            base.model_answer = q.model_answer or None
+        return base
 
     async def _get_quiz_if_owner(self, quiz_id: UUID, user_id: UUID) -> QuizAggregate:
         quiz = await self._quiz_repo.find_by_id(quiz_id)
@@ -441,6 +532,8 @@ class QuizService:
                     text=q.text,
                     options=dict(q.options),
                     difficulty=self._difficulty_str(q.difficulty),
+                    kind=q.kind,
+                    max_chars=MAX_ANSWER_CHARS if q.is_open else None,
                 )
                 for i, q in enumerate(quiz.questions)
             ],

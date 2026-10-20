@@ -312,6 +312,20 @@ _VARIANTES = {
 }
 
 
+#: Cómo se escribe una pregunta abierta (ADR-053). Las ideas clave son la rúbrica
+#: con la que el corrector (ADR-052) la corregirá: verificables, no temas sueltos.
+_ABIERTA = (
+    'Una pregunta ABIERTA lleva {"kind": "open", "text": "...", "key_points": ["...", ...], '
+    '"model_answer": "...", "difficulty": "...", "concept_tags": ["..."]}: pide explicar, '
+    "justificar o aplicar con sus palabras, se responde en 1 a 4 frases, no es de sí/no ni pide "
+    "copiar una definición. key_points son de 2 a 4 ideas que una respuesta correcta TIENE que "
+    "expresar, cada una una frase concreta y verificable, y SOLO de lo que la pregunta pide: si "
+    "pregunta cómo ocurre algo, no exijas por qué es importante. model_answer es una respuesta correcta "
+    "de ejemplo, de 1 a 3 frases. Una de OPCIÓN MÚLTIPLE lleva \"kind\": \"choice\" además de "
+    "sus campos de siempre."
+)
+
+
 @dataclass(frozen=True)
 class ChatPrompt:
     system: str
@@ -455,6 +469,15 @@ class TutorPolicy:
             else ""
         )
         dificultades = ", ".join(d.value for d in req.check_difficulties)
+        tipos = tuple(getattr(req, "check_kinds", ()) or ())
+        con_abiertas = "open" in tipos
+        orden_tipos = (
+            " Tipos en este orden: "
+            + ", ".join("abierta" if k == "open" else "opción múltiple" for k in tipos)
+            + f". {_ABIERTA}"
+            if con_abiertas
+            else ""
+        )
         return ChatPrompt(
             system=(
                 f"{_IDENTIDAD}{_persona(req.persona)} Estás dando una clase sobre «{req.topic_label}». El concepto de "
@@ -469,10 +492,13 @@ class TutorPolicy:
                 )
                 + ", sin el ejemplo), example (markdown, un ejemplo concreto y resuelto), "
                 "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
-                f"{len(req.check_difficulties)} preguntas de opción múltiple sobre «{req.concept_title}», "
-                f"con dificultades en este orden: {dificultades}; cada una con text, options "
-                '(objeto {"A":..,"B":..,"C":..,"D":..}) y correct_answer (la letra)). Las '
-                "preguntas comprueban comprensión, no memoria literal, y no repiten el ejemplo. "
+                f"{len(req.check_difficulties)} preguntas "
+                + ("" if con_abiertas else "de opción múltiple ")
+                + f"sobre «{req.concept_title}», "
+                f"con dificultades en este orden: {dificultades}; cada una de opción múltiple con text, options "
+                '(objeto {"A":..,"B":..,"C":..,"D":..}) y correct_answer (la letra)).'
+                + orden_tipos
+                + " Las preguntas comprueban comprensión, no memoria literal, y no repiten el ejemplo. "
                 "Cada pregunta tiene UNA sola opción correcta: ninguna otra opción puede ser "
                 "equivalente a ella (p. ej. 3/4 y 9/12, o 0,5 y 1/2)."
             ),
@@ -750,9 +776,15 @@ class TutorPolicy:
         **tema**. El modelo no resume material, escribe una escalera de ítems
         cuyo reparto por dificultad y concepto ya decidió el dominio.
         """
+        abiertas = getattr(plan, "open_items", 0) > 0
         peldanos = " ".join(
             f"{r.items} de dificultad '{r.difficulty.value}' sobre "
-            f"{', '.join(r.concepts)}."
+            f"{', '.join(r.concepts)}"
+            + (
+                f" ({r.open_items} abiertas y {r.items - r.open_items} de opción múltiple)."
+                if abiertas
+                else "."
+            )
             for r in plan.rungs
         )
         practica = plan.round is None
@@ -778,11 +810,14 @@ class TutorPolicy:
             system=(
                 f"Eres un experto en {'ejercicios de práctica' if practica else 'evaluación diagnóstica'}. "
                 "Genera exactamente "
-                f"{plan.total_items} preguntas de opción múltiple en JSON: "
+                f"{plan.total_items} preguntas "
+                + ("" if abiertas else "de opción múltiple ")
+                + "en JSON: "
                 '{"questions": [{"text": "...", "options": {"A": "...", "B": "...", '
                 '"C": "...", "D": "..."}, "correct_answer": "A", "difficulty": '
                 '"easy", "concept_tags": ["concepto"]}, ...]}. '
-                f"Reparto obligatorio: {peldanos} "
+                + (f"{_ABIERTA} " if abiertas else "")
+                + f"Reparto obligatorio: {peldanos} "
                 "El campo difficulty de cada ítem DEBE coincidir con el peldaño "
                 "al que pertenece, y concept_tags DEBE contener el concepto que "
                 "ese ítem mide, escrito igual que aquí. "
