@@ -1,4 +1,9 @@
-"""PUT /learning/me/preferences: elegir cómo quiero que me expliquen (ADR-022)."""
+"""PUT /learning/me/preferences: elegir cómo quiero que me expliquen (ADR-022).
+
+Desde el ADR-053 la respuesta trae también `assessment` (la mezcla de preguntas) y el
+PUT es merge: aquí se comprueba solo lo del estilo; la mezcla, en
+`test_preguntas_abiertas_e2e.py`.
+"""
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,8 +36,8 @@ def test_elegir_un_estilo_se_ve_en_preferencias_y_en_el_perfil(client):
 
     r = client.put("/api/v1/learning/me/preferences", headers=h, json={"explanation_style": "analogy"})
 
-    assert r.status_code == 200 and r.json() == {"explanation_style": "analogy"}
-    assert client.get("/api/v1/learning/me/preferences", headers=h).json() == {"explanation_style": "analogy"}
+    assert r.status_code == 200 and r.json()["explanation_style"] == "analogy"
+    assert client.get("/api/v1/learning/me/preferences", headers=h).json()["explanation_style"] == "analogy"
     assert client.get("/api/v1/learning/me/profile", headers=h).json()["explanation_style_choice"] == "analogy"
 
 
@@ -42,21 +47,31 @@ def test_null_devuelve_la_decision_a_laria(client):
 
     r = client.put("/api/v1/learning/me/preferences", headers=h, json={"explanation_style": None})
 
-    assert r.json() == {"explanation_style": None}
+    assert r.json()["explanation_style"] is None
     assert client.get("/api/v1/learning/me/profile", headers=h).json()["explanation_style_choice"] is None
 
 
 def test_sin_elegir_nada_es_null(client):
     h = _auth(client)
 
-    assert client.get("/api/v1/learning/me/preferences", headers=h).json() == {"explanation_style": None}
+    assert client.get("/api/v1/learning/me/preferences", headers=h).json()["explanation_style"] is None
 
 
-@pytest.mark.parametrize("cuerpo", [{"explanation_style": "escuchando"}, {}])
-def test_un_estilo_desconocido_o_ausente_es_422(client, cuerpo):
+def test_un_estilo_desconocido_es_422(client):
     h = _auth(client)
 
-    assert client.put("/api/v1/learning/me/preferences", headers=h, json=cuerpo).status_code == 422
+    assert client.put("/api/v1/learning/me/preferences", headers=h, json={"explanation_style": "escuchando"}).status_code == 422
+
+
+def test_un_estilo_ausente_no_borra_el_elegido(client):
+    """Antes un body sin estilo era 422. Con el merge del ADR-053 es «no cambiar»: si no,
+    la pantalla que guarda la mezcla de preguntas borraría el estilo elegido."""
+    h = _auth(client)
+    client.put("/api/v1/learning/me/preferences", headers=h, json={"explanation_style": "visual"})
+
+    r = client.put("/api/v1/learning/me/preferences", headers=h, json={})
+
+    assert r.status_code == 200 and r.json()["explanation_style"] == "visual"
 
 
 def test_sin_sesion_es_401(client):

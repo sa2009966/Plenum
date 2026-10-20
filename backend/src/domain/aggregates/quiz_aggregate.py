@@ -23,6 +23,16 @@ class QuizGrade:
     per_question_correct: tuple[bool, ...]
     score: int
     total_points: int
+    #: Crédito por pregunta, 0..1: una abierta puede ser parcial (ADR-053). Vacío
+    #: en intentos anteriores: entonces vale lo mismo que `per_question_correct`.
+    per_question_score: tuple[float, ...] = ()
+    #: Índice → corrección de la abierta (veredicto, nota, ideas cubiertas, feedback).
+    open_grades: dict = field(default_factory=dict)
+
+    def score_at(self, i: int) -> float:
+        if i < len(self.per_question_score):
+            return self.per_question_score[i]
+        return 1.0 if self.per_question_correct[i] else 0.0
 
     @property
     def correct_count(self) -> int:
@@ -69,6 +79,9 @@ class QuizAggregate:
                     correct_answer=q.correct_answer,
                     difficulty=_normalize_difficulty(q.difficulty),
                     concept_tags=tuple(tags),
+                    kind=getattr(q, "kind", "choice"),
+                    key_points=tuple(getattr(q, "key_points", ()) or ()),
+                    model_answer=getattr(q, "model_answer", "") or "",
                 )
             )
         if document_id is None and not (topic or "").strip():
@@ -98,8 +111,12 @@ class QuizAggregate:
     def is_owned_by(self, user_id: UUID) -> bool:
         return self.owner_id == user_id
 
-    def grade(self, answers: dict[int, str]) -> QuizGrade:
-        """Califica un intento completo. Requiere respuesta para cada pregunta."""
+    @property
+    def open_indexes(self) -> tuple[int, ...]:
+        return tuple(i for i, q in enumerate(self.questions) if q.is_open)
+
+    def validate_answers(self, answers: dict[int, str]) -> None:
+        """Un intento completo y con la forma de cada pregunta. Sin corregir nada."""
         n = len(self.questions)
         if len(answers) != n or any(i not in answers for i in range(n)):
             raise ValueError(
@@ -108,19 +125,45 @@ class QuizAggregate:
         for index, choice in answers.items():
             if index < 0 or index >= n:
                 raise ValueError(f"Índice de pregunta inválido: {index}")
+            if self.questions[index].is_open:
+                continue
             if choice not in self.questions[index].options:
                 raise ValueError(
                     f"Opción '{choice}' no válida para la pregunta {index}"
                 )
 
-        per_question = tuple(
-            answers[i] == self.questions[i].correct_answer for i in range(n)
-        )
-        correct = sum(1 for c in per_question if c)
+    def grade(self, answers: dict[int, str], open_grades: dict | None = None) -> QuizGrade:
+        """Califica un intento completo. Requiere respuesta para cada pregunta.
+
+        Las abiertas llegan ya corregidas (`open_grades`, ADR-052): corregirlas
+        necesita al modelo y un agregado no hace I/O. Aquí solo se combinan, y una
+        abierta sin corrección es un error, no un cero.
+        """
+        self.validate_answers(answers)
+        open_grades = dict(open_grades or {})
+        faltan = [i for i in self.open_indexes if i not in open_grades]
+        if faltan:
+            raise ValueError(f"Faltan las correcciones de las preguntas abiertas {faltan}.")
+        n = len(self.questions)
+        puntos: list[float] = []
+        aciertos: list[bool] = []
+        for i in range(n):
+            q = self.questions[i]
+            if q.is_open:
+                g = open_grades[i]
+                puntos.append(float(g.score))
+                aciertos.append(bool(g.is_correct))
+            else:
+                ok = answers[i] == q.correct_answer
+                puntos.append(1.0 if ok else 0.0)
+                aciertos.append(ok)
         return QuizGrade(
-            per_question_correct=per_question,
-            score=correct * 10,
+            per_question_correct=tuple(aciertos),
+            # Puntos enteros como siempre; una abierta parcial suma su parte.
+            score=round(sum(puntos) * 10),
             total_points=self.total_points,
+            per_question_score=tuple(round(p, 3) for p in puntos),
+            open_grades={i: open_grades[i] for i in self.open_indexes},
         )
 
     def clear_events(self) -> None:

@@ -134,6 +134,13 @@ def _match_rule(path: str, method: str) -> tuple[str, int, float] | None:
         return ("ia:ask", 8, 60.0)
     if method == "POST" and "/quiz" in path and "/attempts" not in path:
         return ("ia:quiz", 8, 60.0)
+    # Enviar un intento o una comprobación puede corregir abiertas con el modelo
+    # (ADR-053): una llamada por respuesta abierta.
+    if method == "POST" and (
+        (path.startswith("/api/v1/quizzes/") and path.rstrip("/").endswith("/attempts"))
+        or (path.startswith("/api/v1/learning/paths/") and path.rstrip("/").endswith("/check"))
+    ):
+        return ("ia:grade", 20, 60.0)
     if path.startswith("/api/v1/documents/"):
         return ("/api/v1/documents/", 30, 60.0)
     if path.startswith("/api/v1/quizzes/"):
@@ -287,9 +294,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         prefix, limit, window = rule
         key = f"{await _client_key_async(request)}:{prefix}"
         if not await self._get_counter().allow(key, limit, window):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Demasiadas solicitudes. Intenta de nuevo más tarde."},
-                headers={"Retry-After": "60"},
-            )
+            contenido = {"detail": "Demasiadas solicitudes. Intenta de nuevo más tarde."}
+            if prefix == "ia:grade":
+                # El cliente lo distingue para no perder lo escrito (ADR-053).
+                contenido["reason"] = "grade_rate_limited"
+            return JSONResponse(status_code=429, content=contenido, headers={"Retry-After": "60"})
         return await call_next(request)

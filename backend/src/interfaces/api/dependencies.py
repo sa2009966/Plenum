@@ -452,6 +452,15 @@ def get_quiz_service() -> QuizService:
         strong_model=settings.OPENAI_MODEL_STRONG,
         analyze_service=get_analyze_service(),
         safety=get_content_safety(),
+        open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
+    )
+
+
+def get_review_schedule_service() -> "ReviewScheduleService":
+    from src.application.services.review_service import ReviewScheduleService
+
+    return ReviewScheduleService(
+        get_profile_repo(), get_learning_path_repo(), desired_retention=settings.REVIEW_DESIRED_RETENTION
     )
 
 

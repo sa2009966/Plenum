@@ -35,6 +35,9 @@ class LessonRequest:
     #: Ideas clave del módulo sacadas de fuentes reales (ADR-039): la explicación se
     #: apoya en ellas en vez de solo en lo que el modelo recuerde.
     key_points: tuple[str, ...] = ()
+    #: Tipo de cada pregunta de la comprobación, en el mismo orden ("choice"/"open",
+    #: ADR-053). Vacío = todas de opción múltiple, como antes.
+    check_kinds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

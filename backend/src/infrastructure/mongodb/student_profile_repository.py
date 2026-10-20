@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -11,10 +11,19 @@ from src.domain.aggregates.student_profile import (
     StudentProfile,
 )
 from src.domain.exceptions import ConcurrencyError
+from src.domain.memory_model import ReviewEntry
 from src.domain.services.adaptive_policy import Signal, SignalKind
 from src.domain.ports.repositories import StudentProfileRepository
 from src.infrastructure.mongodb.database import get_database
 
+
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Mongo devuelve fechas sin zona; todas son UTC."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 class MongoDBStudentProfileRepository(StudentProfileRepository):
 
@@ -59,6 +68,11 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                     "evidence_count": c.evidence_count,
                     "weak_evidence_count": c.weak_evidence_count,
                     "half_life_days": c.half_life_days,
+                    "last_reviewed_at": c.last_reviewed_at,
+                    "review_log": [
+                        {"at": e.at, "score_ratio": e.score_ratio, "half_life_days": e.half_life_days}
+                        for e in c.review_log
+                    ],
                 }
                 for key, c in profile.mastery_by_concept.items()
             },
@@ -73,6 +87,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "topic_labels": dict(profile.topic_labels),
             "explanation_style_choice": profile.explanation_style_choice,
             "voice_choice": profile.voice_choice,
+            "assessment_open": profile.assessment_open,
+            "assessment_choice": profile.assessment_choice,
             "session_minutes": profile.session_minutes,
             "daily_goal_minutes": profile.daily_goal_minutes,
             "pedagogical_memory": {
@@ -126,6 +142,18 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
                 # Se asume 0 y se corrige con el uso; ver deuda conocida.
                 weak_evidence_count=int(raw.get("weak_evidence_count", 0)),
                 half_life_days=float(raw.get("half_life_days", 14.0)),
+                # Perfiles anteriores al ADR-051 no traen historial: empiezan sin
+                # repasos y la vida media que tuvieran (14 días). No se inventa.
+                last_reviewed_at=_aware(raw.get("last_reviewed_at")),
+                review_log=[
+                    ReviewEntry(
+                        at=_aware(e["at"]),
+                        score_ratio=float(e.get("score_ratio", 0.0)),
+                        half_life_days=float(e.get("half_life_days", 14.0)),
+                    )
+                    for e in (raw.get("review_log") or [])
+                    if e.get("at") is not None
+                ],
             )
         raw_mem = doc.get("pedagogical_memory") or {}
         memory = PedagogicalMemory(
@@ -162,6 +190,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             topic_labels=dict(doc.get("topic_labels") or {}),
             explanation_style_choice=doc.get("explanation_style_choice") or "",
             voice_choice=doc.get("voice_choice") or "",
+            assessment_open=doc.get("assessment_open"),
+            assessment_choice=doc.get("assessment_choice"),
             session_minutes=int(doc.get("session_minutes") or 0),
             daily_goal_minutes=int(doc.get("daily_goal_minutes") or 0),
             last_interaction_at=doc.get("last_interaction_at"),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from src.domain.concept_identity import canonicalize_concept
 from src.domain.subject_areas import EXACTAS, SOCIALES, area_of_subject, matches_area
@@ -74,13 +75,8 @@ class ConceptTagger:
             # llegar al gate. No saber de qué es un ítem es un dato; fabricar un
             # concepto para taparlo, no (ADR-011).
             return question
-        return QuizQuestion(
-            text=question.text,
-            options=dict(question.options),
-            correct_answer=question.correct_answer,
-            difficulty=question.difficulty,
-            concept_tags=tuple(tags[:5]),
-        )
+        # `replace` conserva el tipo y la rúbrica de una pregunta abierta (ADR-053).
+        return replace(question, concept_tags=tuple(tags[:5]))
 
     def tag_questions(
         self,

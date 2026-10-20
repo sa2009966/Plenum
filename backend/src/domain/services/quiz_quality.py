@@ -124,8 +124,12 @@ def ensure_quiz_quality(questions: list[QuizQuestion], rng=None) -> list[QuizQue
     if not questions:
         raise QuizQualityError("El cuestionario no tiene preguntas")
     for q in questions:
+        if q.is_open:
+            # Una abierta no tiene opciones que barajar; su rúbrica ya la validó
+            # el value object (ADR-053).
+            continue
         if len(q.options) < 2:
             raise QuizQualityError("Cada pregunta necesita al menos 2 opciones")
         if q.correct_answer not in q.options:
             raise QuizQualityError("correct_answer inválida")
-    return [shuffle_options(q, rng) for q in questions]
+    return [q if q.is_open else shuffle_options(q, rng) for q in questions]

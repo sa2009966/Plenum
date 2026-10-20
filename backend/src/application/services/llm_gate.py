@@ -305,6 +305,9 @@ class LlmGate:
                         correct_answer=q["correct_answer"],
                         difficulty=q.get("difficulty", difficulty),
                         concept_tags=tuple(q.get("concept_tags") or ()),
+                        kind=q.get("kind", "choice"),
+                        key_points=tuple(q.get("key_points") or ()),
+                        model_answer=q.get("model_answer", ""),
                     )
                     for q in data.get("questions", [])
                 ]
@@ -322,6 +325,9 @@ class LlmGate:
                         "correct_answer": q.correct_answer,
                         "difficulty": q.difficulty.value if hasattr(q.difficulty, "value") else q.difficulty,
                         "concept_tags": list(q.concept_tags or ()),
+                        "kind": q.kind,
+                        "key_points": list(q.key_points),
+                        "model_answer": q.model_answer,
                     }
                     for q in quiz.questions
                 ]

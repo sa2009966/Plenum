@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.application.services.learning_preferences_service import LearningPreferencesService
 from src.application.services.learning_query_service import LearningQueryService
@@ -17,7 +17,7 @@ from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.services.visuals import extract_diagrams
 from src.domain.services.content_safety import UnsafeTopicError
-from src.interfaces.api.quiz_mappers import quiz_to_public_response
+from src.interfaces.api.quiz_mappers import attempt_question_item, quiz_to_public_response
 from src.domain.aggregates.learning_path import LearningPathAggregate
 from src.domain.ports.repositories import (
     LearningPathRepository,
@@ -29,6 +29,7 @@ from src.interfaces.api.dependencies import (
     get_learning_preferences_service,
     get_learning_query_service,
     get_profile_repo,
+    get_review_schedule_service,
     get_study_time_service,
     get_teaching_service,
 )
@@ -48,13 +49,24 @@ from src.interfaces.schemas.learning_path_schemas import (
     StudyDayItem,
     StudyGoals,
     StudyPing,
+    EstimatedPoint,
+    MeasuredPoint,
+    RetentionCurveResponse,
+    ReviewAgendaResponse,
+    ReviewCountsResponse,
+    ReviewItemResponse,
     StudySummaryResponse,
     TeachingStateResponse,
 )
+from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
+from src.domain.assessment import AssessmentMix
+from src.infrastructure.config import settings
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
     DocumentMasteryItem,
     LearningHistoryResponse,
+    AssessmentConfig,
+    AssessmentOverride,
     LearningPreferences,
     LearningRecommendationItem,
     PedagogicalMemoryItem,
@@ -245,8 +257,11 @@ async def get_my_preferences(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
 ):
+    yo = UUID(current_user_id)
     return LearningPreferences(
-        explanation_style=await service.explanation_style(UUID(current_user_id))
+        explanation_style=await service.explanation_style(yo),
+        assessment=_config(await service.assessment(yo)),
+        open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
     )
 
 
@@ -262,10 +277,33 @@ async def put_my_preferences(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[LearningPreferencesService, Depends(get_learning_preferences_service)],
 ):
-    elegido = await service.choose_explanation_style(
-        UUID(current_user_id), body.explanation_style
+    yo = UUID(current_user_id)
+    # MERGE: solo cambia lo que viene. Un cliente que manda su estilo no pisa la
+    # mezcla de preguntas, ni al revés (ADR-053).
+    if "explanation_style" in body.model_fields_set:
+        estilo = await service.choose_explanation_style(yo, body.explanation_style)
+    else:
+        estilo = await service.explanation_style(yo)
+    if body.assessment is not None:
+        mezcla = await service.choose_assessment(
+            yo, AssessmentMix(body.assessment.open_questions, body.assessment.choice_questions)
+        )
+    else:
+        mezcla = await service.assessment(yo)
+    return LearningPreferences(
+        explanation_style=estilo, assessment=_config(mezcla), open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED
     )
-    return LearningPreferences(explanation_style=elegido)
+
+
+def _mezcla(body: "AssessmentOverride | None") -> AssessmentMix | None:
+    """La mezcla solo para esta vez (ADR-053); None = la preferencia guardada."""
+    if body is None or body.assessment is None:
+        return None
+    return AssessmentMix(body.assessment.open_questions, body.assessment.choice_questions)
+
+
+def _config(mezcla: AssessmentMix) -> AssessmentConfig:
+    return AssessmentConfig(open_questions=mezcla.open_questions, choice_questions=mezcla.choice_questions)
 
 
 async def _projected(
@@ -450,10 +488,11 @@ async def lesson(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[TeachingService, Depends(get_teaching_service)],
+    body: Optional[AssessmentOverride] = None,
 ):
     usuario = UUID(current_user_id)
     try:
-        paso = await service.lesson(usuario, path_id)
+        paso = await service.lesson(usuario, path_id, _mezcla(body))
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     except UnsafeTopicError:
@@ -495,9 +534,10 @@ async def passage_test(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[TeachingService, Depends(get_teaching_service)],
+    body: Optional[AssessmentOverride] = None,
 ):
     try:
-        quiz = await service.passage_test(UUID(current_user_id), path_id)
+        quiz = await service.passage_test(UUID(current_user_id), path_id, _mezcla(body))
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     except PassageTestNotAvailable:
@@ -549,16 +589,7 @@ async def answer_check(
         outcome=r.outcome.value,
         score=r.attempt.score,
         total_points=r.attempt.total_points,
-        questions=[
-            {
-                "index": q.index,
-                "text": q.text,
-                "selected": q.selected,
-                "correct_answer": q.correct_answer,
-                "is_correct": q.is_correct,
-            }
-            for q in r.attempt.questions
-        ],
+        questions=[attempt_question_item(q) for q in r.attempt.questions],
         next=NextStepResponse(
             phase=r.next.phase.value,
             concept=r.next.concept,
@@ -638,6 +669,78 @@ async def get_study_time(
     tz: Optional[str] = None,
 ):
     return _resumen(await service.summary(UUID(current_user_id), tz))
+
+
+@router.get(
+    "/me/reviews",
+    response_model=ReviewAgendaResponse,
+    summary="Agenda de repasos",
+    description=(
+        "Conceptos con evidencia calificada y cuándo repasarlos (ADR-051). `status` se calcula con el "
+        "día local de `tz` (IANA; UTC si falta o no existe). `counts` cuenta el total aunque `limit` "
+        "recorte la lista. `estimated_retention` es una estimación del modelo de olvido. El projector "
+        "aplica los intentos de forma asíncrona: tras un quiz puede tardar unos segundos en verse."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def get_review_agenda(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[ReviewScheduleService, Depends(get_review_schedule_service)],
+    tz: Optional[str] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    a = await service.agenda(UUID(current_user_id), tz, limit)
+    return ReviewAgendaResponse(
+        generated_at=a.generated_at,
+        desired_retention=a.desired_retention,
+        counts=ReviewCountsResponse(**a.counts),
+        items=[
+            ReviewItemResponse(
+                concept=i.concept,
+                label=i.label,
+                status=i.status,
+                estimated_retention=i.estimated_retention,
+                next_review_at=i.next_review_at,
+                last_reviewed_at=i.last_reviewed_at,
+                half_life_days=i.half_life_days,
+                reviews=i.reviews,
+                mastery=i.mastery,
+                path_id=str(i.path_id) if i.path_id else None,
+            )
+            for i in a.items
+        ],
+    )
+
+
+@router.get(
+    "/me/reviews/curve",
+    response_model=RetentionCurveResponse,
+    summary="Curva del olvido de un concepto",
+    description=(
+        "`measured`: repasos calificados reales. `estimated`: la curva del modelo entre repasos y hasta "
+        "pasado el próximo (máx. 60 puntos). 404 si el concepto no tiene evidencia calificada (ADR-051)."
+    ),
+    responses={**RESP_401_UNAUTHORIZED, 404: {"description": "Concepto sin repasos."}},
+)
+async def get_retention_curve(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[ReviewScheduleService, Depends(get_review_schedule_service)],
+    concept: Annotated[str, Query(min_length=1, max_length=200)],
+):
+    try:
+        c = await service.curve(UUID(current_user_id), concept)
+    except ConceptWithoutReviews:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ese concepto aún no tiene repasos.")
+    return RetentionCurveResponse(
+        concept=c.concept,
+        label=c.label,
+        desired_retention=c.desired_retention,
+        half_life_days=c.half_life_days,
+        next_review_at=c.next_review_at,
+        measured=[MeasuredPoint(at=t, score_ratio=r) for t, r in c.measured],
+        estimated=[EstimatedPoint(at=t, retention=r) for t, r in c.estimated],
+        note=c.note,
+    )
 
 
 

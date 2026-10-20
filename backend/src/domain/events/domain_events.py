@@ -125,6 +125,15 @@ class VoiceChosenEvent(DomainEventBase):
 
 
 @dataclass(kw_only=True)
+class AssessmentChosenEvent(DomainEventBase):
+    """Cuántas abiertas y de opción múltiple quiere en sus evaluaciones (ADR-053)."""
+
+    student_id: UUID
+    open_questions: int
+    choice_questions: int
+
+
+@dataclass(kw_only=True)
 class StudyGoalsChosenEvent(DomainEventBase):
     """Duración de sesión y objetivo diario (ADR-033). None = sin límite / sin objetivo."""
 

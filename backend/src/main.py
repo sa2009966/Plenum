@@ -183,6 +183,8 @@ async def lifespan(app: FastAPI):
         await close_database()
 
 
+from src.application.services.quiz_service import AnswerTooLong, GraderUnavailable  # noqa: E402
+
 _docs = "/docs" if settings.ENABLE_DOCS else None
 _redoc = "/redoc" if settings.ENABLE_DOCS else None
 _openapi = "/openapi.json" if settings.ENABLE_DOCS else None
@@ -230,6 +232,30 @@ async def unsafe_topic_handler(request: Request, exc: UnsafeTopicError):
             "reason": "unsafe_topic",
             "safety": exc.verdict.action.value,
         },
+    )
+
+
+@app.exception_handler(GraderUnavailable)
+async def grader_unavailable_handler(request: Request, exc: GraderUnavailable):
+    """El corrector de abiertas no respondió (ADR-053): el intento no se guardó.
+
+    Con `reason` porque el cliente trata un 502 sin más como "servidor dormido";
+    este se reenvía sin perder lo escrito.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={
+            "detail": "No pudimos corregir tus respuestas ahora mismo. Vuelve a enviarlas.",
+            "reason": "grader_unavailable",
+        },
+    )
+
+
+@app.exception_handler(AnswerTooLong)
+async def answer_too_long_handler(request: Request, exc: AnswerTooLong):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": str(exc), "reason": "answer_too_long", "index": exc.index},
     )
 
 

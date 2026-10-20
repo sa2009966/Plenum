@@ -16,6 +16,8 @@ from src.domain.ports.chat_title_generator import (
 from src.domain.ports.ia_analyst import IAAnalysisError, IAAnalyst
 from src.domain.ports.lesson_generator import Lesson, LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.metrics_port import MetricsPort
+from src.domain.open_answers import OpenQuestion, RubricJudgement
+from src.domain.ports.open_answer_judge import OpenAnswerJudge
 from src.domain.services.tutor_policy import TutorPolicy
 from src.domain.value_objects.analysis_result import AnalysisResult
 from src.domain.value_objects.question import Quiz, QuizQuestion
@@ -126,7 +128,23 @@ _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
 
 
-class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator):
+
+def _abierta(item: dict, dificultad, tags: tuple[str, ...]) -> QuizQuestion:
+    """Una pregunta abierta del JSON del modelo (ADR-053). ValueError si no lo es."""
+    if item.get("options") or not isinstance(item.get("key_points"), list):
+        raise ValueError("se pidió una pregunta abierta")
+    return QuizQuestion(
+        text=str(item["text"]).strip(),
+        options={},
+        correct_answer="",
+        difficulty=dificultad,
+        concept_tags=tags,
+        kind="open",
+        key_points=tuple(" ".join(str(k).split()) for k in item["key_points"][:5]),
+        model_answer=" ".join(str(item.get("model_answer") or "").split()),
+    )
+
+class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator, OpenAnswerJudge):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
     Las subclases solo definen `api_url`, `model` y `api_key`.
@@ -177,6 +195,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         max_tokens: int | None = None,
         task: str = "chat",
         json_mode: bool = False,
+        temperature: float = 0.3,
     ) -> str:
         use_model = model or self.model
         payload = {
@@ -185,7 +204,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
-            "temperature": 0.3,
+            "temperature": temperature,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
@@ -287,14 +306,18 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             raise IAAnalysisError(_MSG_RESPUESTA)
         return resumen
 
-    async def _chat_json(self, system_prompt: str, user_message: str, *, model: str | None) -> dict:
+    async def _chat_json(
+        self, system_prompt: str, user_message: str, *, model: str | None, temperature: float = 0.3, task: str = "chat"
+    ) -> dict:
         """Pide JSON y lo parsea. Si aun así llega roto, reintenta una vez.
 
         Un solo reintento: dos fallos seguidos ya no son mala suerte, y el
         estudiante está esperando. El error sigue siendo `IAAnalysisError` (502).
         """
         for intento in (1, 2):
-            raw = await self._chat(system_prompt, user_message, model=model, json_mode=True)
+            raw = await self._chat(
+                system_prompt, user_message, model=model, json_mode=True, temperature=temperature, task=task
+            )
             try:
                 return self._extract_json(raw)
             except IAAnalysisError:
@@ -368,7 +391,13 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         if not isinstance(items, list) or len(items) != len(request.check_difficulties):
             raise ValueError(f"se pidieron {len(request.check_difficulties)} preguntas")
         preguntas = []
-        for item, dificultad in zip(items, request.check_difficulties):
+        tipos = tuple(request.check_kinds) or ("choice",) * len(request.check_difficulties)
+        for item, dificultad, tipo in zip(items, request.check_difficulties, tipos):
+            if tipo == "open":
+                # El tipo lo fija el backend por posición: una "abierta" con opciones
+                # no cumple lo pedido y la lección se pide otra vez.
+                preguntas.append(_abierta(item, dificultad, (request.concept,)))
+                continue
             opciones = {str(k).strip().upper()[:1]: str(v).strip() for k, v in dict(item["options"]).items()}
             correcta = str(item["correct_answer"]).strip().upper()[:1]
             if len(opciones) < 3 or correcta not in opciones or not str(item["text"]).strip():
@@ -496,6 +525,20 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         )
         return await self._chat(prompt.system, prompt.user, model=model)
 
+    async def judge(self, question: OpenQuestion, answer: str) -> RubricJudgement:
+        """Juicio de una respuesta abierta (ADR-052). Temperatura 0: corregir no es crear."""
+        prompt = self._policy.judge_open_answer(question, answer)
+        data = await self._chat_json(prompt.system, prompt.user, model=None, temperature=0.0, task="judge")
+        puntos = data.get("points")
+        if not isinstance(puntos, list) or len(puntos) != len(question.key_points):
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        return RubricJudgement(
+            covered=tuple(isinstance(p, dict) and p.get("covered") is True for p in puntos),
+            contradicts=data.get("contradicts") is True,
+            feedback=str(data.get("feedback") or "")[:600],
+            quotes=tuple(str(p.get("quote") or "") if isinstance(p, dict) else "" for p in puntos),
+        )
+
     async def answer_question_stream(
         self,
         context: str,
@@ -606,15 +649,30 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         return self._quiz_desde_json(data)
 
     def _quiz_desde_json(self, data: dict | str) -> Quiz:
-        """Contrato de ítems compartido por el quiz normal y el diagnóstico."""
+        """Contrato de ítems compartido por el quiz normal y el diagnóstico.
+
+        Un ítem malformado se descarta en vez de tumbar el quiz entero: el reparto
+        lo comprueba después `fit_to_plan`, que regenera si falta alguno (ADR-045).
+        Capturado con el modelo real: a veces `questions` traía una cadena suelta y
+        la nivelación respondía 500.
+        """
         if isinstance(data, str):
             data = self._extract_json(data)
-        try:
-            questions = []
-            for q in data.get("questions", []):
+        crudas = data.get("questions", []) if isinstance(data, dict) else []
+        if not isinstance(crudas, list):
+            raise IAAnalysisError(_MSG_RESPUESTA)
+        questions = []
+        descartadas = 0
+        for q in crudas:
+            try:
                 tags = q.get("concept_tags") or q.get("concepts") or []
                 if isinstance(tags, str):
                     tags = [tags]
+                # Medido: el modelo a veces omite "kind"; con ideas clave y sin opciones,
+                # es una abierta.
+                if q.get("kind") == "open" or (q.get("key_points") and not q.get("options")):
+                    questions.append(_abierta(q, q.get("difficulty", "medium"), tuple(str(t) for t in tags)))
+                    continue
                 questions.append(
                     QuizQuestion(
                         text=q["text"],
@@ -624,6 +682,10 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                         concept_tags=tuple(str(t) for t in tags),
                     )
                 )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise IAAnalysisError(_MSG_RESPUESTA) from exc
+            except (KeyError, TypeError, ValueError, AttributeError):
+                descartadas += 1
+        if descartadas:
+            logger.warning("quiz_items_descartados n=%d de %d", descartadas, len(crudas))
+        if not questions:
+            raise IAAnalysisError(_MSG_RESPUESTA)
         return Quiz(questions=questions)

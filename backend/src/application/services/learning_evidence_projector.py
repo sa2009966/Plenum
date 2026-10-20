@@ -6,6 +6,7 @@ from src.domain.events.domain_events import (
     QuizAttemptCompletedEvent,
     StudyGoalsChosenEvent,
     VoiceChosenEvent,
+    AssessmentChosenEvent,
     TutorQuestionAskedEvent,
 )
 from src.domain.ports.event_bus import EventBus
@@ -117,6 +118,7 @@ class LearningEvidenceProjector:
         )
         await self._event_bus.subscribe(VoiceChosenEvent, self.handle_voice_chosen)
         await self._event_bus.subscribe(StudyGoalsChosenEvent, self.handle_study_goals_chosen)
+        await self._event_bus.subscribe(AssessmentChosenEvent, self.handle_assessment_chosen)
 
     async def handle_tutor_question(self, event: TutorQuestionAskedEvent) -> None:
         """Unifica ask → perfil (además de la interacción ya guardada en el servicio)."""
@@ -232,6 +234,24 @@ class LearningEvidenceProjector:
 
         await with_concurrency_retry(_persist_profile)
 
+    async def handle_assessment_chosen(self, event: AssessmentChosenEvent) -> None:
+        """Guarda la mezcla de preguntas elegida (ADR-053). Por evento (invariante 1)."""
+        if self._profile_repo is None:
+            return
+
+        async def _persist_profile():
+            profile = await self._profile_repo.find_by_student(event.student_id)
+            if profile is None:
+                profile = StudentProfile.create(event.student_id)
+            if profile.was_event_applied(event.event_id):
+                return profile
+            profile.choose_assessment(event.open_questions, event.choice_questions)
+            profile.mark_event_applied(event.event_id)
+            await self._profile_repo.save(profile)
+            return profile
+
+        await with_concurrency_retry(_persist_profile)
+
     async def handle_voice_chosen(self, event: VoiceChosenEvent) -> None:
         """Guarda la voz elegida. Por evento, como toda escritura del perfil (invariante 1)."""
         if self._profile_repo is None:
@@ -300,12 +320,10 @@ class LearningEvidenceProjector:
             if quiz is not None and attempt is not None and not reintento:
                 for i, question in enumerate(quiz.questions):
                     tagged = self._tagger.tag_question(question)
-                    ok = (
-                        attempt.per_question_correct[i]
-                        if i < len(attempt.per_question_correct)
-                        else False
-                    )
-                    item_ratio = 1.0 if ok else 0.0
+                    # Crédito parcial de una abierta (ADR-053): media idea es media
+                    # evidencia, no un acierto ni un fallo.
+                    item_ratio = attempt.score_at(i)
+                    ok = item_ratio >= 0.5
                     if not tagged.concept_tags:
                         # Ítem sin concepto conocido: cuenta para el mastery del
                         # documento, pero no se le inventa un concepto al que
@@ -344,7 +362,7 @@ class LearningEvidenceProjector:
                 # acabaría sacando `weakest_documents` en las recomendaciones,
                 # apuntando a un documento que no existe.
                 profile.record_diagnostic_result(
-                    concept_results=results_t, missed_concepts=missed_t
+                    concept_results=results_t, missed_concepts=missed_t, at=event.timestamp
                 )
                 if tema_nivelacion and ronda_nivelacion:
                     # El veredicto se escribe aquí y solo aquí: el servicio lo
@@ -365,6 +383,7 @@ class LearningEvidenceProjector:
                     score_ratio=ratio,
                     missed_concepts=missed_t,
                     concept_results=results_t,
+                    at=event.timestamp,
                 )
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
