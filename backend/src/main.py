@@ -184,6 +184,7 @@ async def lifespan(app: FastAPI):
 
 
 from src.application.services.quiz_service import AnswerTooLong, GraderUnavailable  # noqa: E402
+from src.interfaces.api.errors import ReasonedError  # noqa: E402
 
 _docs = "/docs" if settings.ENABLE_DOCS else None
 _redoc = "/redoc" if settings.ENABLE_DOCS else None
@@ -233,6 +234,11 @@ async def unsafe_topic_handler(request: Request, exc: UnsafeTopicError):
             "safety": exc.verdict.action.value,
         },
     )
+
+
+@app.exception_handler(ReasonedError)
+async def reasoned_error_handler(request: Request, exc: ReasonedError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "reason": exc.reason})
 
 
 @app.exception_handler(GraderUnavailable)

@@ -49,6 +49,7 @@ from src.domain.services.diagnostic_planner import (
 )
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.assessment import check_layout
+from src.domain.class_session import ClassSession
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -61,6 +62,10 @@ logger = logging.getLogger("laria.teaching")
 #: Un temario propuesto por el modelo se acota, por tramo (ADR-037). Antes eran 6
 #: para toda la ruta, y la ruta no crecía: tras esas clases no había más.
 MAX_SYLLABUS = 8
+
+
+class ConceptNotInPath(LookupError):
+    """El concepto pedido para una duda en clase no es de esta ruta (ADR-054)."""
 
 
 class PathNotFound(LookupError):
@@ -353,6 +358,61 @@ class TeachingService:
         path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
         await self._paths.save(path)
         return LessonStep(path, quiz)
+
+    async def class_session(self, user_id: UUID, path_id: UUID, concept: str | None = None) -> ClassSession:
+        """Lo que el tutor sabe al responder una duda en esta clase (ADR-054). Solo lee.
+
+        `concept`: el paso que el alumno tiene en pantalla, si no es el actual (p. ej.
+        mirando el resultado de la comprobación anterior). Tiene que ser de la ruta.
+
+        De la comprobación pendiente y de una prueba de paso sin responder salen solo
+        los ENUNCIADOS, para que el tutor no los resuelva: ni opciones, ni letra, ni
+        ideas clave, ni respuesta modelo. Lo que no entra no se puede filtrar.
+        """
+        path = await self.get_owned(user_id, path_id)
+        t = path.teaching
+        clave = canonicalize_concept(concept) if concept else (t.concept or "")
+        if concept and path.module(clave) is None:
+            raise ConceptNotInPath(concept)
+        modulo = path.module(clave) if clave else None
+        actual = clave == (t.concept or "")
+        no_resolver: list[str] = []
+        if t.phase == TeachingPhase.CHECK and t.pending_check_quiz_id is not None:
+            quiz = await self._quizzes.find_by_id(t.pending_check_quiz_id)
+            if quiz is not None:
+                no_resolver += [q.text for q in quiz.questions]
+        no_resolver += await self._prueba_de_paso_pendiente(user_id, path)
+        return ClassSession(
+            topic_label=path.title,
+            concept_title=(modulo.title if modulo else None) or clave or path.title,
+            concept=clave,
+            # La explicación guardada es la del paso actual: de otro paso no se manda.
+            lesson_excerpt=(t.lesson_markdown or "") if actual else "",
+            key_points=tuple(modulo.key_points) if modulo else (),
+            pending_check=tuple(no_resolver),
+        )
+
+    async def _prueba_de_paso_pendiente(self, user_id: UUID, path: LearningPathAggregate) -> list[str]:
+        """Enunciados de la prueba de paso de esta ruta que aún no tiene intento.
+
+        Es un examen: aunque el panel de dudas no se muestre durante ella, el tutor
+        no debe ayudar con sus preguntas si llegan por el chat de la clase.
+        """
+        if not path.topic or self._attempts is None:
+            return []
+        try:
+            propios = await self._quizzes.find_by_owner(user_id)
+        except Exception:  # noqa: BLE001 — sin historial, nada que proteger
+            return []
+        pruebas = sorted(
+            (q for q in propios if q.topic == path.topic and q.placement_round and q.document_id is None),
+            key=lambda q: q.created_at,
+            reverse=True,
+        )
+        for quiz in pruebas[:1]:
+            if not await self._attempts.find_by_quiz(quiz.id):
+                return [q.text for q in quiz.questions]
+        return []
 
     async def passage_test(self, user_id: UUID, path_id: UUID, assessment=None):
         """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.

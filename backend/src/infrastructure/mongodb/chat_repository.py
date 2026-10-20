@@ -25,6 +25,7 @@ class MongoDBChatRepository(ChatRepository):
             "owner_id": str(chat.owner_id),
             "title": chat.title,
             "document_id": str(chat.document_id) if chat.document_id else None,
+            "path_id": str(chat.path_id) if chat.path_id else None,
             "messages": [
                 {
                     "id": str(m.id),
@@ -58,6 +59,7 @@ class MongoDBChatRepository(ChatRepository):
             owner_id=UUID(doc["owner_id"]),
             title=doc["title"],
             document_id=UUID(doc["document_id"]) if doc.get("document_id") else None,
+            path_id=UUID(doc["path_id"]) if doc.get("path_id") else None,
             messages=messages,
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
@@ -86,3 +88,23 @@ class MongoDBChatRepository(ChatRepository):
     async def delete(self, chat_id: UUID) -> None:
         db = await self._get_db()
         await db.chats.delete_one({"_id": str(chat_id)})
+
+    async def find_by_path(self, owner_id: UUID, path_id: UUID) -> Optional[ChatAggregate]:
+        db = await self._get_db()
+        doc = await db.chats.find_one({"owner_id": str(owner_id), "path_id": str(path_id)})
+        return self._from_doc(doc) if doc else None
+
+    async def create_for_path(self, chat: ChatAggregate) -> ChatAggregate:
+        """Inserta; si el índice único (owner_id, path_id) choca, devuelve el que ganó."""
+        from pymongo.errors import DuplicateKeyError
+
+        db = await self._get_db()
+        try:
+            await db.chats.insert_one(self._to_doc(chat))
+            return chat
+        except DuplicateKeyError:
+            existente = await self.find_by_path(chat.owner_id, chat.path_id)
+            if existente is None:  # borrado justo entre medias: se reintenta una vez
+                await db.chats.insert_one(self._to_doc(chat))
+                return chat
+            return existente

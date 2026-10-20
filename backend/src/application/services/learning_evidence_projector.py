@@ -7,6 +7,7 @@ from src.domain.events.domain_events import (
     StudyGoalsChosenEvent,
     VoiceChosenEvent,
     AssessmentChosenEvent,
+    ClassQuestionAskedEvent,
     TutorQuestionAskedEvent,
 )
 from src.domain.ports.event_bus import EventBus
@@ -119,6 +120,7 @@ class LearningEvidenceProjector:
         await self._event_bus.subscribe(VoiceChosenEvent, self.handle_voice_chosen)
         await self._event_bus.subscribe(StudyGoalsChosenEvent, self.handle_study_goals_chosen)
         await self._event_bus.subscribe(AssessmentChosenEvent, self.handle_assessment_chosen)
+        await self._event_bus.subscribe(ClassQuestionAskedEvent, self.handle_class_question)
 
     async def handle_tutor_question(self, event: TutorQuestionAskedEvent) -> None:
         """Unifica ask → perfil (además de la interacción ya guardada en el servicio)."""
@@ -228,6 +230,24 @@ class LearningEvidenceProjector:
             if profile.was_event_applied(event.event_id):
                 return profile
             profile.choose_study_goals(event.session_minutes, event.daily_goal_minutes)
+            profile.mark_event_applied(event.event_id)
+            await self._profile_repo.save(profile)
+            return profile
+
+        await with_concurrency_retry(_persist_profile)
+
+    async def handle_class_question(self, event: ClassQuestionAskedEvent) -> None:
+        """Duda con dificultad en clase → señal débil del concepto del paso (ADR-054)."""
+        if self._profile_repo is None:
+            return
+
+        async def _persist_profile():
+            profile = await self._profile_repo.find_by_student(event.student_id)
+            if profile is None:
+                profile = StudentProfile.create(event.student_id)
+            if profile.was_event_applied(event.event_id):
+                return profile
+            profile.record_class_question(event.concept, event.signal_kind, event.signal_strength)
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             return profile

@@ -220,6 +220,20 @@ class ChatRepository(ABC):
     async def delete(self, chat_id: UUID) -> None:
         ...
 
+    @abstractmethod
+    async def find_by_path(self, owner_id: UUID, path_id: UUID) -> Optional[ChatAggregate]:
+        """El chat de la clase de esa ruta, si existe (ADR-054)."""
+        ...
+
+    @abstractmethod
+    async def create_for_path(self, chat: ChatAggregate) -> ChatAggregate:
+        """Guarda `chat` si no hay ya uno para (dueño, ruta); si lo hay, devuelve ese.
+
+        Atómico: dos peticiones a la vez (dos pestañas, React en modo estricto) no
+        pueden crear dos chats para la misma clase.
+        """
+        ...
+
 
 class LearningPathRepository(ABC):
     @abstractmethod

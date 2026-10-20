@@ -14,7 +14,7 @@ DEFAULT_CHOICE = 3
 MAX_PER_KIND = 10
 MAX_TOTAL = 12
 #: Preguntas por ronda de nivelación cuando son abiertas: escribir lleva más que
-#: marcar, sobre todo en el móvil. Pendiente de confirmar por el usuario (ADR-053).
+#: marcar, sobre todo en el móvil. Confirmado por el usuario el 20-oct-2026 (ADR-053).
 PLACEMENT_OPEN_ITEMS = 4
 
 

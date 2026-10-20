@@ -25,6 +25,9 @@ class ChatAddMessageRequest(BaseModel):
     role: Literal["user", "system"]
     content: Annotated[str, Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS)]
     metadata: Optional[dict] = None
+    #: Solo en un chat de clase (ADR-054): el paso que el alumno tiene en pantalla, si
+    #: no es el actual. Clave canónica de un módulo de la ruta; si no, 422.
+    concept: Annotated[Optional[str], Field(default=None, max_length=200)] = None
 
 
 class TitleMessageRequest(BaseModel):
@@ -52,6 +55,8 @@ class ChatResponse(BaseModel):
     id: str
     title: str
     document_id: Optional[str] = None
+    #: La ruta de la clase de este chat (ADR-054); null en un chat normal.
+    path_id: Optional[str] = None
     messages: list[ChatMessageResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -61,6 +66,7 @@ class ChatSummary(BaseModel):
     id: str
     title: str
     document_id: Optional[str] = None
+    path_id: Optional[str] = None
     message_count: int
     last_message_preview: str = ""
     created_at: datetime

@@ -115,3 +115,11 @@ def test_mongo_guarda_y_lee_abiertas_y_creditos():
     otra = MongoDBQuizAttemptRepository._from_doc(MongoDBQuizAttemptRepository._to_doc(intento))
     assert otra.per_question_score == [1.0, 0.0]
     assert otra.open_results[0]["verdict"] == "correct" and otra.open_results[0]["feedback"] == "Bien."
+
+
+def test_opciones_numericas_del_modelo_se_vuelven_texto():
+    """Capturado con el modelo real: {"A": 4, ...} daba 500 al responder la nivelación."""
+    quiz = BaseChatAnalyst._quiz_desde_json(None, {"questions": [
+        {"text": "¿x en 2x = 8?", "options": {"a": 4, "b": 3, "c": 1, "d": 2}, "correct_answer": "a"}]})
+    q = quiz.questions[0]
+    assert q.options == {"A": "4", "B": "3", "C": "1", "D": "2"} and q.correct_answer == "A"

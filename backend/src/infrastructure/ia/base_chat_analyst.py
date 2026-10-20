@@ -673,11 +673,14 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                 if q.get("kind") == "open" or (q.get("key_points") and not q.get("options")):
                     questions.append(_abierta(q, q.get("difficulty", "medium"), tuple(str(t) for t in tags)))
                     continue
+                # Opciones y letra siempre como texto: capturado con el modelo real,
+                # un ítem de ecuaciones llegó con {"A": 4, "B": 3…} y la nivelación
+                # respondía 500 al serializarlo.
                 questions.append(
                     QuizQuestion(
-                        text=q["text"],
-                        options=q["options"],
-                        correct_answer=q["correct_answer"],
+                        text=str(q["text"]),
+                        options={str(k).strip().upper(): str(v).strip() for k, v in dict(q["options"]).items()},
+                        correct_answer=str(q["correct_answer"]).strip().upper(),
                         difficulty=q.get("difficulty", "medium"),
                         concept_tags=tuple(str(t) for t in tags),
                     )
