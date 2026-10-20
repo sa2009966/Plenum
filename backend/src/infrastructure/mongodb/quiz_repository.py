@@ -28,6 +28,10 @@ class MongoDBQuizRepository(QuizRepository):
             "correct_answer": q.correct_answer,
             "difficulty": difficulty,
             "concept_tags": list(q.concept_tags),
+            # ADR-053. Los quizzes anteriores no los traen: son de opción múltiple.
+            "kind": q.kind,
+            "key_points": list(q.key_points),
+            "model_answer": q.model_answer,
         }
 
     @staticmethod
@@ -38,6 +42,9 @@ class MongoDBQuizRepository(QuizRepository):
             correct_answer=doc["correct_answer"],
             difficulty=Difficulty(doc.get("difficulty", "medium")),
             concept_tags=tuple(doc.get("concept_tags") or []),
+            kind=doc.get("kind", "choice"),
+            key_points=tuple(doc.get("key_points") or ()),
+            model_answer=doc.get("model_answer", ""),
         )
 
     @staticmethod

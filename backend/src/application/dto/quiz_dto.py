@@ -9,6 +9,9 @@ class QuizQuestionPublicDTO:
     text: str
     options: dict[str, str]
     difficulty: str
+    #: "choice" u "open" (ADR-053). Una abierta no trae opciones y sí `max_chars`.
+    kind: str = "choice"
+    max_chars: int | None = None
 
 
 @dataclass
@@ -32,6 +35,14 @@ class AttemptQuestionResultDTO:
     selected: str | None
     correct_answer: str
     is_correct: bool
+    # ADR-053: crédito 0..1 y, en una abierta, su corrección. Las ideas clave y la
+    # respuesta modelo solo salen aquí, después de contestar.
+    kind: str = "choice"
+    score: float = 0.0
+    verdict: str | None = None
+    feedback: str | None = None
+    key_points: list[tuple[str, bool]] | None = None
+    model_answer: str | None = None
 
 
 @dataclass

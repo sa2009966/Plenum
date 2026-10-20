@@ -59,6 +59,8 @@ class DiagnosticRung:
     difficulty: Difficulty
     items: int
     concepts: tuple[str, ...]
+    #: Cuántos de `items` son preguntas abiertas (ADR-053). 0 = todas de opción múltiple.
+    open_items: int = 0
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,10 @@ class DiagnosticPlan:
     @property
     def total_items(self) -> int:
         return sum(r.items for r in self.rungs)
+
+    @property
+    def open_items(self) -> int:
+        return sum(r.open_items for r in self.rungs)
 
     @property
     def prerequisites(self) -> tuple[str, ...]:
@@ -280,6 +286,35 @@ def plan_passage_test(
     )
 
 
+def resized(plan: DiagnosticPlan, total: int) -> DiagnosticPlan:
+    """El mismo plan con `total` ítems, en la proporción de sus peldaños. Pura.
+
+    La nivelación con abiertas tiene menos preguntas (ADR-053): escribir lleva más
+    que marcar. Los peldaños que se quedan sin ítems desaparecen.
+    """
+    from dataclasses import replace
+
+    from src.domain.assessment import split_by_weight
+
+    nuevos = split_by_weight(max(1, total), [r.items for r in plan.rungs])
+    rungs = tuple(
+        replace(r, items=n, open_items=min(r.open_items, n)) for r, n in zip(plan.rungs, nuevos) if n > 0
+    )
+    return replace(plan, rungs=rungs)
+
+
+def with_open_items(plan: DiagnosticPlan, n_open: int) -> DiagnosticPlan:
+    """Reparte `n_open` abiertas entre los peldaños, en proporción a sus ítems. Pura."""
+    from dataclasses import replace
+
+    from src.domain.assessment import split_by_weight
+
+    n_open = max(0, min(int(n_open), plan.total_items))
+    abiertas = split_by_weight(n_open, [r.items for r in plan.rungs])
+    rungs = tuple(replace(r, open_items=min(a, r.items)) for r, a in zip(plan.rungs, abiertas))
+    return replace(plan, rungs=rungs)
+
+
 def fit_to_plan(questions: list, plan: DiagnosticPlan) -> tuple[list, bool]:
     """Ajusta lo generado al reparto del plan. Devuelve (preguntas, cumple). Pura.
 
@@ -293,11 +328,17 @@ def fit_to_plan(questions: list, plan: DiagnosticPlan) -> tuple[list, bool]:
         # El adaptador da `Difficulty`; un doble o un JSON crudo, el texto ("hard").
         return getattr(d, "value", d)
 
-    quedan = {_valor(r.difficulty): r.items for r in plan.rungs}
+    # Por dificultad Y por tipo (ADR-053): una abierta no ocupa el hueco de una de
+    # opción múltiple, o la mezcla que eligió el estudiante no se cumpliría.
+    quedan: dict[tuple[str, str], int] = {}
+    for r in plan.rungs:
+        d = _valor(r.difficulty)
+        quedan[(d, "open")] = quedan.get((d, "open"), 0) + r.open_items
+        quedan[(d, "choice")] = quedan.get((d, "choice"), 0) + r.items - r.open_items
     elegidas = []
     for q in questions:
-        d = _valor(q.difficulty)
-        if quedan.get(d, 0) > 0:
+        clave = (_valor(q.difficulty), getattr(q, "kind", "choice"))
+        if quedan.get(clave, 0) > 0:
             elegidas.append(q)
-            quedan[d] -= 1
+            quedan[clave] -= 1
     return elegidas, all(v == 0 for v in quedan.values())

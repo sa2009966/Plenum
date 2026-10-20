@@ -14,7 +14,7 @@ from src.interfaces.api.openapi_responses import (
     RESP_429_RATE_LIMIT,
     RESP_502_BAD_GATEWAY,
 )
-from src.interfaces.api.quiz_mappers import quiz_to_public_response
+from src.interfaces.api.quiz_mappers import attempt_question_item, quiz_to_public_response
 from src.interfaces.schemas.quiz_schemas import (
     AttemptQuestionResultItem,
     DiagnosticRequest,
@@ -99,7 +99,7 @@ async def generate_practice(
 ):
     try:
         quiz = await service.generate_practice(
-            body.topic, UUID(current_user_id), body.num_questions
+            body.topic, UUID(current_user_id), body.num_questions, _mezcla(body.assessment)
         )
     except IAAnalysisError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
@@ -194,18 +194,16 @@ async def submit_attempt(
         document_id=str(result.document_id) if result.document_id else None,
         score=result.score,
         total_points=result.total_points,
-        questions=[
-            AttemptQuestionResultItem(
-                index=q.index,
-                text=q.text,
-                selected=q.selected,
-                correct_answer=q.correct_answer,
-                is_correct=q.is_correct,
-            )
-            for q in result.questions
-        ],
+        questions=[attempt_question_item(q) for q in result.questions],
         completed_at=result.completed_at,
         placement=(
             PlacementResult(**vars(result.placement)) if result.placement else None
         ),
     )
+
+
+def _mezcla(config) -> "AssessmentMix | None":
+    """El AssessmentConfig del body como valor de dominio (ya validado por el schema)."""
+    from src.domain.assessment import AssessmentMix
+
+    return AssessmentMix(config.open_questions, config.choice_questions) if config else None

@@ -27,6 +27,8 @@ class MongoDBQuizAttemptRepository(QuizAttemptRepository):
             "student_id": str(attempt.student_id),
             "answers": {str(k): v for k, v in attempt.answers.items()},
             "per_question_correct": list(attempt.per_question_correct),
+            "per_question_score": list(attempt.per_question_score),
+            "open_results": {str(k): v for k, v in attempt.open_results.items()},
             "score": attempt.score,
             "total_points": attempt.total_points,
             "completed_at": attempt.completed_at,
@@ -41,6 +43,9 @@ class MongoDBQuizAttemptRepository(QuizAttemptRepository):
             student_id=UUID(doc["student_id"]),
             answers={int(k): v for k, v in doc.get("answers", {}).items()},
             per_question_correct=list(doc.get("per_question_correct", [])),
+            # Intentos anteriores al ADR-053: sin crédito parcial ni abiertas.
+            per_question_score=[float(x) for x in doc.get("per_question_score") or []],
+            open_results={int(k): v for k, v in (doc.get("open_results") or {}).items()},
             score=doc.get("score", 0),
             total_points=doc.get("total_points", 0),
             completed_at=doc["completed_at"],

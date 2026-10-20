@@ -232,7 +232,8 @@ Cada `POST /documents/{id}/ask` genera evidencia vía eventos y se proyecta aqu�
 
 **`mastery_by_document[docId]`:** `document_id`, `attempts`, `mastery`, `last_score_ratio`, `incorrect_streak`, `struggle_signals`.
 
-**`mastery_by_concept[key]`:** `concept_key`, `attempts`, `mastery`, `last_score_ratio`, `document_ids[]`, `confidence`, `last_practiced_at`, `help_requests`, `latency_ms_ema`, `error_streak`, `subject`, `evidence_count`, `weak_evidence_count`, `half_life_days`.
+**`mastery_by_concept[key]`:** `concept_key`, `attempts`, `mastery`, `last_score_ratio`, `document_ids[]`, `confidence`, `last_practiced_at`, `help_requests`, `latency_ms_ema`, `error_streak`, `subject`, `evidence_count`, `weak_evidence_count`, `half_life_days`, `last_reviewed_at`, `review_log[]` (`{at, score_ratio, half_life_days}`, como mucho 30; ADR-051).
+Los dos últimos son nuevos y opcionales: un perfil anterior no los trae y se lee sin historial (no hay migración).
 
 `weak_evidence_count` es el subconjunto de `evidence_count` que **no** vino de un ítem calificado
 (auto-reporte, latencia, chat). La evidencia se pesa con

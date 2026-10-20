@@ -179,3 +179,52 @@ class NextTopicItem(BaseModel):
 
 class NextTopicsResponse(BaseModel):
     suggestions: list[NextTopicItem] = []
+
+
+class ReviewItemResponse(BaseModel):
+    """Un concepto de la agenda de repasos (ADR-051)."""
+
+    concept: str = Field(description="Clave canónica; úsala tal cual en /me/reviews/curve.")
+    label: str
+    status: Literal["overdue", "today", "upcoming"]
+    estimated_retention: float = Field(description="0..1. Estimación del modelo, no una medición.")
+    next_review_at: datetime
+    last_reviewed_at: datetime
+    half_life_days: float
+    reviews: int = Field(description="Repasos calificados registrados (0 en perfiles anteriores al ADR-051).")
+    mastery: float
+    path_id: Optional[str] = Field(default=None, description="Ruta que contiene el concepto; null si no hay.")
+
+
+class ReviewCountsResponse(BaseModel):
+    overdue: int
+    today: int
+    upcoming: int
+
+
+class ReviewAgendaResponse(BaseModel):
+    generated_at: datetime
+    desired_retention: float
+    counts: ReviewCountsResponse
+    items: list[ReviewItemResponse]
+
+
+class MeasuredPoint(BaseModel):
+    at: datetime
+    score_ratio: float
+
+
+class EstimatedPoint(BaseModel):
+    at: datetime
+    retention: float
+
+
+class RetentionCurveResponse(BaseModel):
+    concept: str
+    label: str
+    desired_retention: float
+    half_life_days: float
+    next_review_at: datetime
+    measured: list[MeasuredPoint] = Field(description="Repasos reales, en orden.")
+    estimated: list[EstimatedPoint] = Field(description="Curva del modelo, en orden; como mucho 60 puntos.")
+    note: str

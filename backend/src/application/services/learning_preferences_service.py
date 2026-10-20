@@ -4,7 +4,12 @@ from __future__ import annotations
 from uuid import UUID
 
 from src.domain.catalog.voices import is_voice
-from src.domain.events.domain_events import ExplanationStyleChosenEvent, VoiceChosenEvent
+from src.domain.assessment import DEFAULT_MIX, AssessmentMix
+from src.domain.events.domain_events import (
+    AssessmentChosenEvent,
+    ExplanationStyleChosenEvent,
+    VoiceChosenEvent,
+)
 from src.domain.ports.event_bus import EventBus
 from src.domain.ports.repositories import StudentProfileRepository
 from src.domain.services.cognitive_style import CognitiveStyle
@@ -35,6 +40,25 @@ class LearningPreferencesService:
             ExplanationStyleChosenEvent(aggregate_id=student_id, student_id=student_id, style=style)
         )
         return style
+
+    async def assessment(self, student_id: UUID) -> AssessmentMix:
+        """La mezcla efectiva de abiertas y opción múltiple (ADR-053); 3 + 3 si no eligió."""
+        if self._profiles is None:
+            return DEFAULT_MIX
+        perfil = await self._profiles.find_by_student(student_id)
+        return perfil.assessment() if perfil else DEFAULT_MIX
+
+    async def choose_assessment(self, student_id: UUID, mix: AssessmentMix) -> AssessmentMix:
+        """Publica la elección; la guarda el projector. Devuelve lo elegido (ver estilo)."""
+        await self._bus.publish(
+            AssessmentChosenEvent(
+                aggregate_id=student_id,
+                student_id=student_id,
+                open_questions=mix.open_questions,
+                choice_questions=mix.choice_questions,
+            )
+        )
+        return mix
 
     async def voice(self, student_id: UUID) -> str | None:
         if self._profiles is None:
