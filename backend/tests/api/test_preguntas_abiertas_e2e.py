@@ -242,7 +242,8 @@ def test_las_preferencias_se_mezclan_y_no_se_pisan(entorno):
     # Un PUT solo con el estilo no toca la mezcla, ni al revés.
     c.put("/api/v1/learning/me/preferences", headers=h, json={"explanation_style": "visual"})
     ahora = c.get("/api/v1/learning/me/preferences", headers=h).json()
-    assert ahora == {"explanation_style": "visual", "assessment": {"open_questions": 2, "choice_questions": 4}}
+    assert ahora["explanation_style"] == "visual"
+    assert ahora["assessment"] == {"open_questions": 2, "choice_questions": 4}
     c.put("/api/v1/learning/me/preferences", headers=h, json={"assessment": {"open_questions": 1, "choice_questions": 1}})
     assert c.get("/api/v1/learning/me/preferences", headers=h).json()["explanation_style"] == "visual"
 
@@ -294,3 +295,18 @@ def test_con_las_abiertas_apagadas_todo_sigue_como_antes(entorno):
     practica = c.post("/api/v1/quizzes/practice", headers=h,
                       json={"topic": "fracciones", "num_questions": 4, "assessment": {"open_questions": 3, "choice_questions": 3}}).json()
     assert len(practica["questions"]) == 4 and {q["kind"] for q in practica["questions"]} == {"choice"}
+
+
+def test_las_preferencias_dicen_si_las_abiertas_estan_activas(entorno, monkeypatch):
+    """Apagadas, la mezcla no tiene efecto: el cliente no debe ofrecer un ajuste sin lógica."""
+    from src.infrastructure.config import settings
+
+    c, _, _ = entorno
+    h = _auth(c)
+    monkeypatch.setattr(settings, "OPEN_QUESTIONS_ENABLED", False)
+    assert c.get("/api/v1/learning/me/preferences", headers=h).json()["open_questions_enabled"] is False
+    monkeypatch.setattr(settings, "OPEN_QUESTIONS_ENABLED", True)
+    assert c.get("/api/v1/learning/me/preferences", headers=h).json()["open_questions_enabled"] is True
+    # Es de solo lectura: mandarlo en el PUT no cambia nada.
+    r = c.put("/api/v1/learning/me/preferences", headers=h, json={"open_questions_enabled": False})
+    assert r.status_code == 200 and r.json()["open_questions_enabled"] is True

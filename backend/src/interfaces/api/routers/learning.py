@@ -60,6 +60,7 @@ from src.interfaces.schemas.learning_path_schemas import (
 )
 from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
 from src.domain.assessment import AssessmentMix
+from src.infrastructure.config import settings
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
     DocumentMasteryItem,
@@ -260,6 +261,7 @@ async def get_my_preferences(
     return LearningPreferences(
         explanation_style=await service.explanation_style(yo),
         assessment=_config(await service.assessment(yo)),
+        open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
     )
 
 
@@ -288,7 +290,9 @@ async def put_my_preferences(
         )
     else:
         mezcla = await service.assessment(yo)
-    return LearningPreferences(explanation_style=estilo, assessment=_config(mezcla))
+    return LearningPreferences(
+        explanation_style=estilo, assessment=_config(mezcla), open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED
+    )
 
 
 def _mezcla(body: "AssessmentOverride | None") -> AssessmentMix | None:

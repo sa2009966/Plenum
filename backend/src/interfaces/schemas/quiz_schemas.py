@@ -237,3 +237,7 @@ class LearningPreferences(BaseModel):
         default=None,
         description="Mezcla de preguntas de sus evaluaciones. El GET devuelve siempre la efectiva.",
     )
+    #: Solo lectura (se ignora en el PUT): si las abiertas están activas en el servidor
+    #: (ADR-053). Apagadas, `assessment` se guarda pero no se usa, y el cliente no
+    #: debería ofrecer un ajuste sin efecto.
+    open_questions_enabled: bool = False
