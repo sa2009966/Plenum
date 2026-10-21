@@ -4,6 +4,8 @@
 - **Plan:** fase 2 de `5_PLAN_METODOS_Y_CLASE.md` · **Usa:** ADR-028 (clase), ADR-051 (memoria y
   agenda), ADR-053 (preguntas abiertas), ADR-054 (preguntar en clase), ADR-022 (estilo elegido),
   ADR-033 (tiempo de estudio), ADR-006 y ADR-015 (ofrecer, no imponer).
+- **Aprobado por el equipo (2026-10-20):** ritmo libre por defecto, recuerdo activo sobre conceptos
+  ya estudiados, y el pre-test (nivelación) como paso fijo y obligatorio del flujo (§3 bis).
 - **Fases que lo implementan:** 3 (elegir), 4 (la clase cambia), 5 (modo sombra), 6 (proponer el
   cambio), 7 (calibrar).
 
@@ -76,13 +78,34 @@ calificada (invariante: una duda no es una nota).
 | **Preguntarse el porqué** | La explicación se redacta guiada por **2–3 preguntas «¿por qué…?»** que se responden en el texto. La comprobación incluye una pregunta de tipo «¿por qué…?» |
 | **Intercalado** | La comprobación **mezcla** una pregunta del concepto actual con otra de un concepto ya superado de la ruta. La del concepto anterior cuenta como repaso. Con menos de dos conceptos superados se comporta como «recuerdo activo» |
 
-- **Cambio respecto al plan:** el plan decía «una pregunta *antes* de la explicación» para el
-  recuerdo activo. Preguntar sobre algo que todavía no se explicó es otra técnica (pre-test) que no
-  verificamos. Por eso la pregunta previa es sobre **lo ya visto**, que sí es práctica de
-  recuperación y además espacia.
+- **Ajuste del recuerdo activo respecto al plan (aprobado):** el plan decía «una pregunta *antes* de
+  la explicación». Se concreta que esa pregunta es sobre **un concepto que el alumno ya estudió**:
+  así es práctica de recuperación y además espacia. Evaluar lo que sabe de un tema **nuevo** no es
+  tarea de este método, sino del pre-test (§3 bis).
 - **Coste:** recuerdo activo e intercalado no añaden llamadas al modelo (van en el mismo JSON de la
   lección). «Explícalo tú» añade una corrección por rúbrica en cada paso. Por eso exige el
   interruptor de abiertas y queda bajo el límite de peticiones existente.
+
+### 3 bis. El pre-test no es un método: es un paso fijo del flujo
+- **Es un requisito funcional existente que se mantiene.** El pre-test es la **nivelación**
+  (ADR-016, ADR-017): se hace siempre que el alumno empieza un tema nuevo, para medir lo que ya
+  sabe de ese tema y decidir **desde qué nivel** empieza la explicación. Sin nivelación, la clase
+  no enseña: la ruta queda en `assessment` y `/lesson` responde `409` (ADR-028). Al cerrar un
+  tramo, la prueba de paso (ADR-042) cumple el mismo papel para abrir el siguiente nivel.
+- **No es seleccionable ni se puede saltar** desde la pantalla «Antes de empezar». Elegir método o
+  ritmo nunca lo sustituye. Ningún método lo elimina ni lo cambia.
+- **Pre-test y recuerdo activo son cosas distintas:**
+
+| | Pre-test (nivelación) | Recuerdo activo (método) |
+|---|---|---|
+| Cuándo | Al **empezar** cada tema nuevo, una vez | **Durante** el aprendizaje, en cada paso |
+| Sobre qué | El tema que **aún no** estudió | Conceptos que **ya** estudió en la ruta |
+| Para qué | Medir conocimientos previos y fijar el nivel de partida | Recuperar lo aprendido y reforzar la retención |
+| ¿Obligatorio? | **Sí**, para todos | **No**, es una de las cinco opciones |
+| Qué decide | El nivel del tema y el tramo de la ruta | Nada del nivel: es un ítem más de evidencia y cuenta como repaso (ADR-051) |
+
+- La fase 3 debe mostrar el pre-test **antes** de la pantalla de método cuando el tema todavía no
+  tiene nivelación, igual que hoy.
 
 ### 4. Ritmos
 
