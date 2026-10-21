@@ -20,7 +20,7 @@ from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.content_safety import SafetyAction, safety_message
 from src.domain.services.repetition import repeats_recent
-from src.domain.services.visuals import extract_diagrams
+from src.domain.services.visuals import extract_diagrams, image_requests, place_images
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
 from src.domain.services.learner_context import (
@@ -41,6 +41,7 @@ from src.domain.services.response_envelope import (
     plain_envelope,
 )
 from src.domain.ports.embodiment import AffectState
+from src.domain.ports.image_finder import ImageFinder
 
 
 from dataclasses import replace
@@ -221,7 +222,10 @@ class ChatTutorService:
         preferences: Optional[LearningPreferencesService] = None,
         safety: Optional[ContentSafetyService] = None,
         event_bus=None,
+        image_finder: Optional[ImageFinder] = None,
     ) -> None:
+        #: Fotos con licencia para objetos reales (ADR-048, fase 2); None = apagado.
+        self._images = image_finder
         #: Para dejar como señal débil una duda hecha en clase (ADR-054).
         self._bus = event_bus
         self._analyze_service = analyze_service
@@ -233,6 +237,20 @@ class ChatTutorService:
         self._safety = safety
         self._affect = AffectPolicy()
         self._intent = IntentDetector()
+
+    async def _con_visuales(self, content: str, extra: dict) -> str:
+        """Esquemas pintables (ADR-048) y la foto pedida con `[[imagen: …]]`, o sin la marca."""
+        content = _con_esquemas(content, extra)
+        pedidas = image_requests(content)
+        encontradas = {q: await self._images.find(q) for q in pedidas} if self._images else {}
+        content, fotos = place_images(content, encontradas)
+        if fotos:
+            extra["visuals"] = [*extra.get("visuals", []), *fotos]
+        return content
+
+    def _con_imagenes(self, learner: Optional[LearnerContext]) -> Optional[LearnerContext]:
+        """Con buscador, el modelo puede pedir una foto; sin él, ni se le ofrece."""
+        return replace(learner or LearnerContext(), images=True) if self._images else learner
 
     async def _senal_en_clase(self, student_id: UUID, sesion, question: str) -> None:
         """Una duda en clase que muestra dificultad deja una señal DÉBIL sobre el paso.
@@ -401,7 +419,7 @@ class ChatTutorService:
                 extra["celebrated_concept"] = milestone
             if plan.explanation:
                 extra["explanation"] = plan.explanation
-            content = _con_esquemas(content, extra)
+            content = await self._con_visuales(content, extra)
             envelope = ResponseEnvelope.from_decision(
                 decision,
                 _envelope_type(decision, milestone),
@@ -413,7 +431,7 @@ class ChatTutorService:
 
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para chats libres")
-        learner = await self._learner(profile, intention, question, eleccion)
+        learner = self._con_imagenes(await self._learner(profile, intention, question, eleccion))
         if class_session is not None:
             class_session = replace(class_session, off_topic=fuera_de_tema(question, class_session))
             learner = replace(learner or LearnerContext(), class_session=class_session)
@@ -442,7 +460,7 @@ class ChatTutorService:
         )
         if class_session is not None:
             extra = _en_clase(extra, class_session)
-        content = _con_esquemas(content, extra)
+        content = await self._con_visuales(content, extra)
         envelope = ResponseEnvelope.from_decision(
             None,
             "answer",
@@ -511,7 +529,7 @@ class ChatTutorService:
                 extra["celebrated_concept"] = milestone
             if plan.explanation:
                 extra["explanation"] = plan.explanation
-            content = _con_esquemas(content, extra)
+            content = await self._con_visuales(content, extra)
             envelope = ResponseEnvelope.from_decision(
                 plan.decision,
                 _envelope_type(plan.decision, milestone),
@@ -528,7 +546,7 @@ class ChatTutorService:
             yield content, envelope
             return
 
-        learner = await self._learner(profile, intention, question, eleccion)
+        learner = self._con_imagenes(await self._learner(profile, intention, question, eleccion))
         if class_session is not None:
             # La duda se responde en la clase, sobre su paso (ADR-054).
             class_session = replace(class_session, off_topic=fuera_de_tema(question, class_session))
@@ -554,7 +572,7 @@ class ChatTutorService:
             logger.info("respuesta_repetida regenerada=no streaming=si")
 
         # Envelope final (tras el streaming) para que el cliente cierre.
-        content = _con_esquemas(content, extra)
+        content = await self._con_visuales(content, extra)
         envelope = ResponseEnvelope.from_decision(
             None,
             "answer",

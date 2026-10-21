@@ -65,7 +65,33 @@
   - `tests/api/test_chat_memoria_api.py::test_tras_el_streaming_se_guarda_el_texto_del_cierre_no_los_tokens`,
     que falla sin el cambio del router.
 
+## Fase 2: fotos con licencia de Wikimedia (2026-10-21)
+- **Detrás de `WIKIMEDIA_IMAGES_ENABLED`** (apagado hasta que el cliente las pinte; necesita
+  `OPENAI_API_KEY` para moderarlas).
+- **El modelo no pone URLs:** con estilo visual o si pidió un dibujo, puede escribir en una línea
+  aparte `[[imagen: objeto]]`, solo para **objetos reales** (animales, órganos, lugares,
+  monumentos, instrumentos, máquinas). Una como mucho.
+- **El servidor busca** en Wikimedia Commons (`WikimediaImageFinder`) y solo acepta:
+  - JPEG, PNG o WebP de `upload.wikimedia.org`;
+  - licencias **libres**: CC0, CC BY, CC BY-SA o dominio público. Nada NC ni ND;
+  - fotos que pasen la **moderación de imagen** (`omni-moderation`) con umbrales bajos, porque hay
+    estudiantes menores y Commons no filtra por edad. Si la moderación no responde, **no hay
+    foto** (falla cerrado).
+- **Qué llega:** la marca se cambia por `![título](url)` y una línea *Foto: autor · licencia ·
+  Wikimedia Commons* con enlaces. En el chat, además, `visuals` lleva `{kind: "image", url,
+  page_url, title, author, license, license_url}`. En la clase la foto queda dentro de la
+  explicación guardada: recargar no la vuelve a buscar.
+- **Si no hay foto** (sin resultados, timeout, licencia no libre, moderación), la marca se quita
+  sin dejar huecos. Nunca rompe la respuesta. Los títulos y autores se limpian de HTML y de
+  caracteres que cambien el markdown.
+- **Caché** en memoria por búsqueda (7 días, 500 entradas); los fallos no se guardan.
+- **Tests:** `tests/unit/domain/test_imagenes_con_licencia.py`,
+  `tests/unit/infrastructure/test_wikimedia_image_finder.py`,
+  `tests/unit/application/test_imagenes_en_el_chat_y_la_clase.py` y dos en
+  `tests/api/test_esquemas_en_la_clase.py`.
+- **Sin probar con el modelo real ni contra la API de Wikimedia en vivo** (no había clave en el
+  entorno de desarrollo): es lo primero antes de encender el interruptor.
+
 ## Pendiente
-- **Fase 2:** imágenes con licencia (Wikimedia) para objetos reales, con atribución.
 - **Fase 3:** imágenes generadas solo para analogías, fuera del streaming, con caché en R2 y un
   tope de coste.

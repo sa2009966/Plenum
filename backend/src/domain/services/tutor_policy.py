@@ -9,7 +9,7 @@ from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.repetition import anti_repetition_instruction
-from src.domain.services.visuals import DIAGRAM_INSTRUCTION, wants_diagram
+from src.domain.services.visuals import DIAGRAM_INSTRUCTION, IMAGE_INSTRUCTION, wants_diagram
 from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
@@ -498,6 +498,8 @@ class TutorPolicy:
         if wants_diagram(req.style):
             # Va en `explanation`: el ejemplo resuelto sigue siendo texto (ADR-048).
             estilo += DIAGRAM_INSTRUCTION.replace("Si un esquema", "En explanation, si un esquema")
+            if req.images:
+                estilo += IMAGE_INSTRUCTION.replace("Si ver una foto", "En explanation, si ver una foto")
         evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
         # Ideas clave de fuentes reales (ADR-039): la clase se apoya en ellas, así el
         # contenido intermedio o avanzado no sale solo de la memoria del modelo.
@@ -788,6 +790,8 @@ class TutorPolicy:
         estilo_turno = decision.cognitive_style if decision is not None else (learner.style if learner else None)
         if wants_diagram(estilo_turno, question):
             system += DIAGRAM_INSTRUCTION
+            if learner is not None and learner.images:
+                system += IMAGE_INSTRUCTION
         if adaptation is not None:
             system = f"{system} {adaptation.to_prompt_fragment()}"
         if history:

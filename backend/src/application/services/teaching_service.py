@@ -33,6 +33,7 @@ from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.catalog.prerequisite_seeds import seed_display_labels
 from src.domain.catalog.voices import persona_for
 from src.domain.concept_identity import canonicalize_concept
+from src.domain.ports.image_finder import ImageFinder
 from src.domain.ports.lesson_generator import LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.repositories import (
     LearningPathRepository,
@@ -42,7 +43,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.services.cognitive_style import chosen_style
 from src.domain.services.concept_tagger import ConceptTagger
-from src.domain.services.visuals import extract_diagrams
+from src.domain.services.visuals import extract_diagrams, image_requests, place_images
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
     display_label,
@@ -130,7 +131,10 @@ class TeachingService:
         attempt_repository: QuizAttemptRepository | None = None,
         safety=None,
         research: CurriculumResearchService | None = None,
+        image_finder: ImageFinder | None = None,
     ) -> None:
+        #: Fotos con licencia para objetos reales (ADR-048, fase 2); None = apagado.
+        self._images = image_finder
         self._paths = path_repository
         self._profiles = profile_repository
         self._quizzes = quiz_repository
@@ -351,6 +355,7 @@ class TeachingService:
             persona=persona_for(perfil.voice_choice if perfil else None),
             session_minutes=(perfil.session_minutes or None) if perfil else None,
             key_points=tuple(modulo.key_points) if modulo else (),
+            images=self._images is not None,
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(
@@ -364,6 +369,9 @@ class TeachingService:
         await self._quizzes.save(quiz)
         # Solo llegan los esquemas que se pueden pintar (ADR-048).
         markdown, _ = extract_diagrams(leccion.markdown)
+        # La foto se busca una vez y queda en la explicación guardada: recargar no la repite.
+        encontradas = {q: await self._images.find(q) for q in image_requests(markdown)} if self._images else {}
+        markdown, _ = place_images(markdown, encontradas)
         path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
         await self._paths.save(path)
         return LessonStep(path, quiz)
