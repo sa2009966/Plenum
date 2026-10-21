@@ -211,9 +211,17 @@ class PracticeRequest(BaseModel):
 
 
 class AssessmentOverride(BaseModel):
-    """Body opcional de la clase y de la prueba de paso: la mezcla solo para esta vez."""
+    """Body opcional de la clase, la prueba de paso y los quizzes: la mezcla solo para esta vez."""
 
     assessment: AssessmentConfig | None = None
+
+    def mix(self):
+        """La mezcla del dominio; None = la preferencia guardada (ADR-053)."""
+        from src.domain.assessment import AssessmentMix
+
+        if self.assessment is None:
+            return None
+        return AssessmentMix(self.assessment.open_questions, self.assessment.choice_questions)
 
 
 ExplanationStyle = Literal["simple", "step_by_step", "analogy", "visual", "mathematical", "technical"]

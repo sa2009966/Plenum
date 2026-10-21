@@ -47,6 +47,8 @@ class IAAnalyst(ABC):
         num_questions: int = 5,
         decision: Optional[PedagogicalDecision] = None,
         context: Optional[str] = None,
+        *,
+        open_items: int = 0,
     ) -> Quiz:
         ...
 

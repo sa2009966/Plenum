@@ -50,7 +50,7 @@ from src.interfaces.schemas.document_schemas import (
     QuestionRequest,
     QuestionResponse,
 )
-from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
+from src.interfaces.schemas.quiz_schemas import AssessmentOverride, QuizPublicResponse
 
 logger = logging.getLogger("laria.documents")
 
@@ -450,11 +450,15 @@ async def generate_quiz(
         5,
         ge=1,
         le=20,
-        description="Cantidad de preguntas a generar (1-20).",
+        description="Cantidad de preguntas a generar (1-20). Con las abiertas activas manda la mezcla.",
     ),
+    body: Optional[AssessmentOverride] = None,
 ):
     try:
-        quiz = await service.generate(document_id, UUID(current_user_id), num_questions=num_questions)
+        quiz = await service.generate(
+            document_id, UUID(current_user_id), num_questions=num_questions,
+            assessment=body.mix() if body else None,
+        )
     except (ValueError, PermissionError) as exc:
         raise _http_not_found(exc)
     except IAAnalysisError as exc:

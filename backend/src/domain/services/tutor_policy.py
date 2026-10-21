@@ -886,6 +886,7 @@ class TutorPolicy:
         content: str,
         num_questions: int,
         decision: PedagogicalDecision | None = None,
+        open_items: int = 0,
     ) -> ChatPrompt:
         difficulty = (
             decision.target_difficulty.value if decision else Difficulty.MEDIUM.value
@@ -906,6 +907,26 @@ class TutorPolicy:
             )
             if decision.blocked_by_prereq:
                 mode_note += " Evalúa solo prerrequisitos, no el tema avanzado."
+        abiertas = max(0, min(int(open_items), num_questions))
+        if abiertas:
+            # Mismo contrato que la nivelación y la práctica (ADR-053).
+            return ChatPrompt(
+                system=(
+                    "Eres un experto en pedagogía. Genera exactamente "
+                    f"{num_questions} preguntas sobre el contenido: {abiertas} abiertas y "
+                    f"{num_questions - abiertas} de opción múltiple, intercaladas, en JSON: "
+                    '{"questions": [...]}. Una de opción múltiple lleva {"kind": "choice", "text": "...", '
+                    '"options": {"A": "...", "B": "...", "C": "...", "D": "..."}, "correct_answer": "A", '
+                    '"difficulty": "' + difficulty + '", "concept_tags": ["concepto"]}. '
+                    f"{_ABIERTA} "
+                    f"La dificultad de la mayoría de ítems debe ser '{difficulty}'.{focus}"
+                    f"{mode_note} "
+                    "Cada pregunta DEBE incluir concept_tags (1-3 conceptos). Las abiertas se "
+                    "responden con lo que dice el contenido, no con conocimiento externo. "
+                    "Reparte correct_answer entre A, B, C y D. Sin texto adicional."
+                ),
+                user=f"Contenido base:\n{content}",
+            )
         return ChatPrompt(
             system=(
                 "Eres un experto en pedagogía. Genera exactamente "

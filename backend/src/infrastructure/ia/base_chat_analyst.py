@@ -649,10 +649,11 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             raise IAAnalysisError(_MSG_SATURADO if saturado else _MSG_PROVEEDOR) from exc
 
     async def generate_quiz(
-        self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None
+        self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None,
+        *, open_items: int = 0,
     ) -> Quiz:
         return await self.generate_quiz_with_model(
-            document, num_questions, decision, context, model=self.model
+            document, num_questions, decision, context, model=self.model, open_items=open_items
         )
 
     async def generate_quiz_with_model(
@@ -663,9 +664,10 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         context: str | None = None,
         *,
         model: str,
+        open_items: int = 0,
     ) -> Quiz:
         text = context if context is not None else document.content
-        prompt = self._policy.generate_quiz(text, num_questions, decision)
+        prompt = self._policy.generate_quiz(text, num_questions, decision, open_items)
         data = await self._chat_json(prompt.system, prompt.user, model=model)
         return self._quiz_desde_json(data)
 

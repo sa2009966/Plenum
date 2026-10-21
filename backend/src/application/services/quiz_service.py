@@ -48,7 +48,7 @@ from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.value_objects.question import Difficulty
 from src.application.services.open_answer_service import OpenAnswerGradingService
 from src.domain.open_answers import MAX_ANSWER_CHARS
-from src.domain.assessment import DEFAULT_MIX, PLACEMENT_OPEN_ITEMS, AssessmentMix
+from src.domain.assessment import DEFAULT_MIX, PLACEMENT_OPEN_ITEMS, AssessmentMix, fit_to_mix
 from src.domain.ports.open_answer_judge import OpenAnswerJudge
 
 logger = logging.getLogger("laria.quiz")
@@ -141,7 +141,13 @@ class QuizService:
         document_id: UUID,
         user_id: UUID,
         num_questions: int = 5,
+        assessment: AssessmentMix | None = None,
     ) -> QuizPublicDTO:
+        """Quiz sobre un documento (también el del chat).
+
+        Con las abiertas activas sigue la mezcla, como la práctica (ADR-053): la del
+        body, si no la elegida, si no 3 + 3; `num_questions` solo cuenta apagadas.
+        """
         document = await self._doc_repo.find_by_id(document_id)
         if document is None:
             raise ValueError(self._MSG_DOC_NO_ENCONTRADO)
@@ -176,20 +182,30 @@ class QuizService:
         # Repartido por todo el documento si no hay foco: un quiz de un libro no
         # debe salir solo de las primeras páginas (ADR-029).
         ctx = self._context.select(document, decision.focus_concepts, max_chars=8000, spread=True)
-        if self._llm_gate is not None:
-            generated = await self._llm_gate.generate_quiz(
-                document,
-                num_questions,
-                decision=decision,
-                context=ctx,
-                student_id=user_id,
-            )
-        else:
-            generated = await self._ia_analyst.generate_quiz(
-                document, num_questions, decision=decision, context=ctx
-            )
+        mezcla = await self.effective_mix(user_id, assessment) if self.open_questions_enabled else None
+        total = mezcla.total if mezcla else num_questions
+        extra = {"open_items": mezcla.open_questions} if mezcla and mezcla.open_questions else {}
 
-        questions = ensure_quiz_quality(list(generated.questions))
+        async def generar():
+            if self._llm_gate is not None:
+                return await self._llm_gate.generate_quiz(
+                    document, total, decision=decision, context=ctx, student_id=user_id, **extra
+                )
+            return await self._ia_analyst.generate_quiz(document, total, decision=decision, context=ctx, **extra)
+
+        generated = list((await generar()).questions)
+        if mezcla is not None:
+            generated, cumple = fit_to_mix(generated, mezcla)
+            if not cumple:
+                # El modelo no siempre respeta el reparto: una vez más, y luego lo que haya.
+                logger.warning("quiz_documento_mezcla_incompleta doc=%s", document_id)
+                otra, cumple_otra = fit_to_mix(list((await generar()).questions), mezcla)
+                if cumple_otra or len(otra) > len(generated):
+                    generated = otra
+            if not generated:
+                raise IAAnalysisError("No se pudo generar el cuestionario. Inténtalo de nuevo.")
+
+        questions = ensure_quiz_quality(generated)
         questions = self._tagger.tag_questions(
             questions, concepts or decision.focus_concepts, subject=document.subject
         )

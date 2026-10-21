@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,7 +32,7 @@ from src.interfaces.api.openapi_responses import (
 )
 from src.domain.services.response_envelope import plain_envelope
 from src.interfaces.api.quiz_mappers import quiz_to_public_response
-from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
+from src.interfaces.schemas.quiz_schemas import AssessmentOverride, QuizPublicResponse
 from src.interfaces.schemas.chat_schemas import (
     ChatAddMessageRequest,
     ChatCreateRequest,
@@ -368,7 +368,8 @@ async def generate_chat_quiz(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     service: Annotated[QuizService, Depends(get_quiz_service)],
-    num_questions: int = Query(5, ge=1, le=20, description="Cantidad de preguntas (1-20)."),
+    num_questions: int = Query(5, ge=1, le=20, description="Cantidad de preguntas (1-20). Con las abiertas activas manda la mezcla."),
+    body: Optional[AssessmentOverride] = None,
 ):
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
@@ -385,7 +386,8 @@ async def generate_chat_quiz(
         )
     try:
         quiz = await service.generate(
-            chat.document_id, UUID(current_user_id), num_questions=num_questions
+            chat.document_id, UUID(current_user_id), num_questions=num_questions,
+            assessment=body.mix() if body else None,
         )
     except (ValueError, PermissionError):
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
