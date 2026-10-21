@@ -23,7 +23,9 @@ from src.domain.ports.repositories import (
     LearningPathRepository,
     StudentProfileRepository,
 )
+from src.interfaces.api.errors import ReasonedError
 from src.interfaces.api.dependencies import (
+    get_chat_repo,
     get_current_user_id,
     get_learning_path_repo,
     get_learning_preferences_service,
@@ -60,6 +62,10 @@ from src.interfaces.schemas.learning_path_schemas import (
 )
 from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
 from src.domain.assessment import AssessmentMix
+from src.domain.aggregates.chat import ChatAggregate
+from src.domain.ports.repositories import ChatRepository
+from src.interfaces.api.routers.chats import _map_chat
+from src.interfaces.schemas.chat_schemas import ChatResponse
 from src.infrastructure.config import settings
 from src.interfaces.schemas.quiz_schemas import (
     ConceptMasteryItem,
@@ -262,6 +268,7 @@ async def get_my_preferences(
         explanation_style=await service.explanation_style(yo),
         assessment=_config(await service.assessment(yo)),
         open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
+        class_questions_enabled=settings.CLASS_QUESTIONS_ENABLED,
     )
 
 
@@ -291,7 +298,10 @@ async def put_my_preferences(
     else:
         mezcla = await service.assessment(yo)
     return LearningPreferences(
-        explanation_style=estilo, assessment=_config(mezcla), open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED
+        explanation_style=estilo,
+        assessment=_config(mezcla),
+        open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
+        class_questions_enabled=settings.CLASS_QUESTIONS_ENABLED,
     )
 
 
@@ -430,11 +440,49 @@ async def delete_learning_path(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     repo: Annotated[LearningPathRepository, Depends(get_learning_path_repo)],
+    chats: Annotated[ChatRepository, Depends(get_chat_repo)],
 ):
     path = await repo.find_by_id(path_id)
     if path is None or not path.is_owned_by(UUID(current_user_id)):
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
     await repo.delete(path_id)
+    # Su chat de clase va con ella (ADR-054): sin la clase, su contexto no existe.
+    chat = await chats.find_by_path(UUID(current_user_id), path_id)
+    if chat is not None:
+        await chats.delete(chat.id)
+
+
+@router.get(
+    "/paths/{path_id}/chat",
+    response_model=ChatResponse,
+    summary="El chat de dudas de esta clase",
+    description=(
+        "Devuelve el chat para preguntar a LARIA durante la clase (ADR-054); lo crea la primera "
+        "vez. Uno por ruta y alumno, garantizado en la base de datos. Los mensajes van por "
+        "`POST /chats/{id}/stream`, con `concept` opcional. 404 si la ruta no es tuya, o "
+        "`{reason: class_questions_disabled}` si la función está apagada."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def get_class_chat(
+    path_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+    chats: Annotated[ChatRepository, Depends(get_chat_repo)],
+):
+    if not settings.CLASS_QUESTIONS_ENABLED:
+        raise ReasonedError(404, "Preguntar en clase no está disponible.", "class_questions_disabled")
+    usuario = UUID(current_user_id)
+    try:
+        path = await service.get_owned(usuario, path_id)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    chat = await chats.find_by_path(usuario, path_id)
+    if chat is None:
+        chat = await chats.create_for_path(
+            ChatAggregate.create(usuario, title=f"Clase: {path.title}", path_id=path_id)
+        )
+    return _map_chat(chat)
 
 
 # --- La clase (ADR-028) --------------------------------------------------------------

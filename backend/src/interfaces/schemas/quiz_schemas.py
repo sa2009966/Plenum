@@ -241,3 +241,5 @@ class LearningPreferences(BaseModel):
     #: (ADR-053). Apagadas, `assessment` se guarda pero no se usa, y el cliente no
     #: debería ofrecer un ajuste sin efecto.
     open_questions_enabled: bool = False
+    #: Solo lectura: si se puede preguntar a LARIA durante la clase (ADR-054).
+    class_questions_enabled: bool = False

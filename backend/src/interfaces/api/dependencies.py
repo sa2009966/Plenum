@@ -218,6 +218,7 @@ def get_chat_tutor_service() -> "ChatTutorService":
         topic_catalog=TopicCatalog(get_concept_graph_repo()),
         preferences=get_learning_preferences_service(),
         safety=get_content_safety(),
+        event_bus=get_event_bus(),
     )
 
 

@@ -17,6 +17,7 @@ from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
 from src.application.services.curriculum_research_service import CurriculumResearchService
+from src.application.services.learning_evidence_projector import graded_concept_evidence
 from src.application.services.quiz_service import QuizService
 from src.application.services.topic_catalog import TopicCatalog
 from src.domain.aggregates.learning_path import (
@@ -40,6 +41,7 @@ from src.domain.ports.repositories import (
     StudentProfileRepository,
 )
 from src.domain.services.cognitive_style import chosen_style
+from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.visuals import extract_diagrams
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
@@ -49,6 +51,7 @@ from src.domain.services.diagnostic_planner import (
 )
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.assessment import check_layout
+from src.domain.class_session import ClassSession
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -61,6 +64,10 @@ logger = logging.getLogger("laria.teaching")
 #: Un temario propuesto por el modelo se acota, por tramo (ADR-037). Antes eran 6
 #: para toda la ruta, y la ruta no crecía: tras esas clases no había más.
 MAX_SYLLABUS = 8
+
+
+class ConceptNotInPath(LookupError):
+    """El concepto pedido para una duda en clase no es de esta ruta (ADR-054)."""
 
 
 class PathNotFound(LookupError):
@@ -354,6 +361,61 @@ class TeachingService:
         await self._paths.save(path)
         return LessonStep(path, quiz)
 
+    async def class_session(self, user_id: UUID, path_id: UUID, concept: str | None = None) -> ClassSession:
+        """Lo que el tutor sabe al responder una duda en esta clase (ADR-054). Solo lee.
+
+        `concept`: el paso que el alumno tiene en pantalla, si no es el actual (p. ej.
+        mirando el resultado de la comprobación anterior). Tiene que ser de la ruta.
+
+        De la comprobación pendiente y de una prueba de paso sin responder salen solo
+        los ENUNCIADOS, para que el tutor no los resuelva: ni opciones, ni letra, ni
+        ideas clave, ni respuesta modelo. Lo que no entra no se puede filtrar.
+        """
+        path = await self.get_owned(user_id, path_id)
+        t = path.teaching
+        clave = canonicalize_concept(concept) if concept else (t.concept or "")
+        if concept and path.module(clave) is None:
+            raise ConceptNotInPath(concept)
+        modulo = path.module(clave) if clave else None
+        actual = clave == (t.concept or "")
+        no_resolver: list[str] = []
+        if t.phase == TeachingPhase.CHECK and t.pending_check_quiz_id is not None:
+            quiz = await self._quizzes.find_by_id(t.pending_check_quiz_id)
+            if quiz is not None:
+                no_resolver += [q.text for q in quiz.questions]
+        no_resolver += await self._prueba_de_paso_pendiente(user_id, path)
+        return ClassSession(
+            topic_label=path.title,
+            concept_title=(modulo.title if modulo else None) or clave or path.title,
+            concept=clave,
+            # La explicación guardada es la del paso actual: de otro paso no se manda.
+            lesson_excerpt=(t.lesson_markdown or "") if actual else "",
+            key_points=tuple(modulo.key_points) if modulo else (),
+            pending_check=tuple(no_resolver),
+        )
+
+    async def _prueba_de_paso_pendiente(self, user_id: UUID, path: LearningPathAggregate) -> list[str]:
+        """Enunciados de la prueba de paso de esta ruta que aún no tiene intento.
+
+        Es un examen: aunque el panel de dudas no se muestre durante ella, el tutor
+        no debe ayudar con sus preguntas si llegan por el chat de la clase.
+        """
+        if not path.topic or self._attempts is None:
+            return []
+        try:
+            propios = await self._quizzes.find_by_owner(user_id)
+        except Exception:  # noqa: BLE001 — sin historial, nada que proteger
+            return []
+        pruebas = sorted(
+            (q for q in propios if q.topic == path.topic and q.placement_round and q.document_id is None),
+            key=lambda q: q.created_at,
+            reverse=True,
+        )
+        for quiz in pruebas[:1]:
+            if not await self._attempts.find_by_quiz(quiz.id):
+                return [q.text for q in quiz.questions]
+        return []
+
     async def passage_test(self, user_id: UUID, path_id: UUID, assessment=None):
         """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.
 
@@ -392,18 +454,47 @@ class TeachingService:
             # Dos envíos casi simultáneos (doble clic, dos pestañas): el segundo
             # ya no cuenta como otra comprobación ni como más evidencia.
             raise NoPendingCheck(quiz_id)
+        # Se lee ANTES de enviar: así seguro que aún no tiene este intento, con
+        # cualquier bus (el de memoria proyecta al publicar; el outbox, después).
+        perfil = await self._profiles.find_by_student(user_id)
         # Mismo camino que cualquier quiz: calificación en servidor, evento y
         # projector. La evidencia de la clase NO tiene un sistema propio.
         intento = await self._quiz_service.submit_attempt(quiz_id, user_id, answers)
         correctas = sum(1 for q in intento.questions if q.is_correct)
         resultado = outcome_from(correctas, len(intento.questions))
         path.record_check(resultado)
-        # Se relee: el projector acaba de aplicar la evidencia de este intento.
-        perfil = await self._profiles.find_by_student(user_id)
+        perfil = await self._con_este_intento(perfil, user_id, quiz_id, intento)
         paso = self._policy.after_check(path, resultado, perfil)
         self._apply(path, paso)
         await self._paths.save(path)
         return CheckResult(path, resultado, intento, paso)
+
+    async def _con_este_intento(
+        self, perfil: StudentProfile | None, user_id: UUID, quiz_id: UUID, intento: QuizAttemptResultDTO
+    ) -> StudentProfile:
+        """El perfil con la evidencia de esta comprobación, para decidir el siguiente paso.
+
+        Antes se releía el perfil tras enviar, contando con que el projector ya la
+        hubiera aplicado. En producción el bus es el outbox: el evento se proyecta
+        después, así que se decidía con el dominio de antes de responder y la clase
+        pedía «afianzar» el tema recién superado en vez de pasar al siguiente.
+
+        Se aplica en memoria la misma evidencia que escribirá el projector, sin
+        guardarla: el perfil tiene un único escritor (invariante 1), como el
+        veredicto de la nivelación.
+        """
+        perfil = perfil or StudentProfile.create(user_id)
+        quiz = await self._quizzes.find_by_id(quiz_id)
+        if quiz is None:
+            return perfil
+        puntos = {q.index: q.score for q in intento.questions}
+        resultados, fallados, _, _ = graded_concept_evidence(
+            quiz.questions, lambda i: puntos.get(i, 0.0), ConceptTagger()
+        )
+        perfil.record_diagnostic_result(
+            concept_results=resultados, missed_concepts=fallados, at=intento.completed_at
+        )
+        return perfil
 
     async def next_suggestions(self, user_id: UUID, path_id: UUID) -> list[NextSuggestion]:
         """Cómo seguir tras una ruta (ADR-034). Hasta 3, sin temas ya completados.

@@ -25,6 +25,8 @@ class ChatAggregate:
     owner_id: UUID = field(default_factory=uuid4)
     title: str = "Nuevo chat"
     document_id: UUID | None = None
+    #: La ruta de la clase en la que se pregunta (ADR-054); None en un chat normal.
+    path_id: UUID | None = None
     messages: list[ChatMessage] = field(default_factory=list)
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
@@ -38,6 +40,7 @@ class ChatAggregate:
         owner_id: UUID,
         title: str | None = None,
         document_id: UUID | None = None,
+        path_id: UUID | None = None,
     ) -> "ChatAggregate":
         t = (title or "Nuevo chat").strip()
         if not t:
@@ -48,6 +51,7 @@ class ChatAggregate:
             owner_id=owner_id,
             title=t,
             document_id=document_id,
+            path_id=path_id,
         )
 
     def add_message(

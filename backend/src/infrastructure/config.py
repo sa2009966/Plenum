@@ -162,6 +162,8 @@ class Settings(BaseSettings):
     #: Apagado = exactamente lo de antes (todo opción múltiple): se enciende cuando el
     #: frontend que las pinta esté desplegado, o un cliente viejo vería preguntas sin opciones.
     OPEN_QUESTIONS_ENABLED: bool = False
+    #: Preguntar a LARIA durante la clase (ADR-054). Apagado: la API de antes, sin chat de clase.
+    CLASS_QUESTIONS_ENABLED: bool = False
 
     # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:
     # se calibran con datos de outcome, no se tocan a ojo.

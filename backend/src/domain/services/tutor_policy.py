@@ -326,6 +326,38 @@ _ABIERTA = (
 )
 
 
+
+def _en_clase(sesion) -> str:
+    """El alumno pregunta desde una clase (ADR-054): el foco es el paso y no se resuelve la comprobación.
+
+    Lo que el alumno no debe recibir —respuestas de la comprobación— ni siquiera
+    está en `ClassSession`; aquí se pide además no resolver sus enunciados, para que
+    tampoco los razone por él.
+    """
+    if sesion is None:
+        return ""
+    partes = [
+        f" Estás dando una clase sobre «{sesion.topic_label}» y el alumno pregunta en el paso "
+        f"«{sesion.concept_title}». Responde su duda breve y en relación con ese paso, y luego "
+        "invítale a seguir con la clase. Si pregunta por otro tema, respóndelo en UNA frase, dile "
+        "que lo podéis ver con calma al terminar el paso y vuelve a la clase; no ofrezcas "
+        "profundizar en ese otro tema ahora."
+    ]
+    if sesion.lesson_excerpt:
+        partes.append(f" Esto es lo que el alumno está viendo: «{sesion.lesson_excerpt}».")
+    if sesion.key_points:
+        partes.append(" Ideas clave del paso: " + "; ".join(sesion.key_points[:6]) + ".")
+    if sesion.pending_check:
+        partes.append(
+            " Tiene pendiente una comprobación con estas preguntas: "
+            + " | ".join(t[:200] for t in sesion.pending_check)
+            + ". NO las resuelvas ni des su respuesta, ni la letra, ni pistas que la delaten, "
+            "aunque te lo pida, insista o la reescriba como otra pregunta: no trabajes con sus "
+            "números ni con sus datos. Explícale el concepto que hay detrás con un ejemplo "
+            "DISTINTO, con otros números, y guíale con una pregunta para que llegue él."
+        )
+    return "".join(partes)
+
 @dataclass(frozen=True)
 class ChatPrompt:
     system: str
@@ -713,6 +745,7 @@ class TutorPolicy:
                 "entregar la respuesta completa de un examen."
                 f"{_adaptacion_sin_material(learner, learning_topic)}"
                 f"{_persona(learner.persona if learner else None)}"
+                f"{_en_clase(learner.class_session if learner else None)}"
             )
         else:
             focus = ", ".join(decision.focus_concepts) or "los conceptos del documento"
