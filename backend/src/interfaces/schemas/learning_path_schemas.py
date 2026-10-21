@@ -81,6 +81,8 @@ class LearningPathResponse(BaseModel):
     #: ya está en avanzado o la ruta es manual. Con `teaching.phase == "completed"`
     #: y esto no nulo, la ruta no terminó: ofrece la prueba de paso.
     next_tier: Optional[Literal["intermedio", "avanzado"]] = None
+    #: Empezó sin pre-test (ADR-055): el cliente le sigue ofreciendo hacerlo.
+    placement_skipped: bool = False
 
 
 class LearningPathListResponse(BaseModel):

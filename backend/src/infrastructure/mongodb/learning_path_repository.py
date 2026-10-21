@@ -118,6 +118,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "topic": path.topic,
             "next_topics": list(path.next_topics),
             "tiers": list(path.tiers),
+            "placement_skipped": path.placement_skipped,
             "teaching": MongoDBLearningPathRepository._teaching_to_doc(path.teaching),
         }
 
@@ -134,6 +135,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             topic=doc.get("topic", ""),
             next_topics=list(doc.get("next_topics") or []),
             tiers=list(doc.get("tiers") or []),
+            placement_skipped=bool(doc.get("placement_skipped", False)),
             teaching=MongoDBLearningPathRepository._teaching_from_doc(doc.get("teaching") or {}),
         )
 

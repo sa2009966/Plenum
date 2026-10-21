@@ -9,7 +9,7 @@ from src.domain.ports.chat_title_generator import TitleMessage
 from src.domain.services.adaptive_policy import PromptShapingParameters
 from src.domain.services.cognitive_style import CognitiveStyle
 from src.domain.services.repetition import anti_repetition_instruction
-from src.domain.services.visuals import DIAGRAM_INSTRUCTION, wants_diagram
+from src.domain.services.visuals import DIAGRAM_INSTRUCTION, IMAGE_INSTRUCTION, wants_diagram
 from src.domain.services.learner_context import STYLE_OPTIONS, LearnerContext
 from src.domain.services.pedagogical_engine import PedagogicalDecision, PedagogicalMode
 from src.domain.services.prerequisite_graph import GateAction
@@ -356,6 +356,14 @@ def _en_clase(sesion) -> str:
             "números ni con sus datos. Explícale el concepto que hay detrás con un ejemplo "
             "DISTINTO, con otros números, y guíale con una pregunta para que llegue él."
         )
+    if sesion.off_topic:
+        # Al final, para que sea lo último que lea: solo con «responde en UNA frase»
+        # gpt-4o-mini a veces desarrollaba el otro tema entero.
+        partes.append(
+            " ESTA PREGUNTA NO es de la clase. Contéstala en dos frases como máximo, sin "
+            "listas, sin ejemplos y sin ofrecer profundizar. Termina invitando a volver a "
+            f"«{sesion.concept_title}» y di que ese tema lo podéis ver en el chat al terminar."
+        )
     return "".join(partes)
 
 @dataclass(frozen=True)
@@ -490,6 +498,8 @@ class TutorPolicy:
         if wants_diagram(req.style):
             # Va en `explanation`: el ejemplo resuelto sigue siendo texto (ADR-048).
             estilo += DIAGRAM_INSTRUCTION.replace("Si un esquema", "En explanation, si un esquema")
+            if req.images:
+                estilo += IMAGE_INSTRUCTION.replace("Si ver una foto", "En explanation, si ver una foto")
         evitar = f" No reutilices este ejemplo anterior: «{req.avoid_example}»." if req.avoid_example else ""
         # Ideas clave de fuentes reales (ADR-039): la clase se apoya en ellas, así el
         # contenido intermedio o avanzado no sale solo de la memoria del modelo.
@@ -780,6 +790,8 @@ class TutorPolicy:
         estilo_turno = decision.cognitive_style if decision is not None else (learner.style if learner else None)
         if wants_diagram(estilo_turno, question):
             system += DIAGRAM_INSTRUCTION
+            if learner is not None and learner.images:
+                system += IMAGE_INSTRUCTION
         if adaptation is not None:
             system = f"{system} {adaptation.to_prompt_fragment()}"
         if history:
@@ -878,6 +890,7 @@ class TutorPolicy:
         content: str,
         num_questions: int,
         decision: PedagogicalDecision | None = None,
+        open_items: int = 0,
     ) -> ChatPrompt:
         difficulty = (
             decision.target_difficulty.value if decision else Difficulty.MEDIUM.value
@@ -898,6 +911,26 @@ class TutorPolicy:
             )
             if decision.blocked_by_prereq:
                 mode_note += " Evalúa solo prerrequisitos, no el tema avanzado."
+        abiertas = max(0, min(int(open_items), num_questions))
+        if abiertas:
+            # Mismo contrato que la nivelación y la práctica (ADR-053).
+            return ChatPrompt(
+                system=(
+                    "Eres un experto en pedagogía. Genera exactamente "
+                    f"{num_questions} preguntas sobre el contenido: {abiertas} abiertas y "
+                    f"{num_questions - abiertas} de opción múltiple, intercaladas, en JSON: "
+                    '{"questions": [...]}. Una de opción múltiple lleva {"kind": "choice", "text": "...", '
+                    '"options": {"A": "...", "B": "...", "C": "...", "D": "..."}, "correct_answer": "A", '
+                    '"difficulty": "' + difficulty + '", "concept_tags": ["concepto"]}. '
+                    f"{_ABIERTA} "
+                    f"La dificultad de la mayoría de ítems debe ser '{difficulty}'.{focus}"
+                    f"{mode_note} "
+                    "Cada pregunta DEBE incluir concept_tags (1-3 conceptos). Las abiertas se "
+                    "responden con lo que dice el contenido, no con conocimiento externo. "
+                    "Reparte correct_answer entre A, B, C y D. Sin texto adicional."
+                ),
+                user=f"Contenido base:\n{content}",
+            )
         return ChatPrompt(
             system=(
                 "Eres un experto en pedagogía. Genera exactamente "

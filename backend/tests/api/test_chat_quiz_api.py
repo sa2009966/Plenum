@@ -148,3 +148,22 @@ class TestChatQuizAPI:
         r = client.post(f"/api/v1/chats/{chat_id}/quiz?num_questions=99", headers=_auth(token))
 
         assert r.status_code == 422
+
+    def test_la_mezcla_del_body_llega_al_quiz_del_chat_y_del_documento(self, client):
+        """ADR-053: los quizzes de documentos también aceptan la mezcla solo para esta vez."""
+        from src.domain.assessment import AssessmentMix
+
+        token = _token(client)
+        doc_id = _documento(client, token)
+        chat_id = _chat(client, token, doc_id)
+        servicio = _servicio_quiz_falso(doc_id)
+        app.dependency_overrides[deps.get_quiz_service] = lambda: servicio
+        cuerpo = {"assessment": {"open_questions": 2, "choice_questions": 2}}
+
+        assert client.post(f"/api/v1/chats/{chat_id}/quiz", headers=_auth(token), json=cuerpo).status_code == 200
+        assert servicio.generate.await_args.kwargs["assessment"] == AssessmentMix(2, 2)
+        assert client.post(f"/api/v1/documents/{doc_id}/quiz", headers=_auth(token), json=cuerpo).status_code == 200
+        assert servicio.generate.await_args.kwargs["assessment"] == AssessmentMix(2, 2)
+        # Sin body, la preferencia guardada (None).
+        client.post(f"/api/v1/chats/{chat_id}/quiz", headers=_auth(token))
+        assert servicio.generate.await_args.kwargs["assessment"] is None

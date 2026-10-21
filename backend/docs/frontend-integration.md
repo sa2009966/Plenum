@@ -392,6 +392,7 @@ Cada punto enlaza al contrato con sus payloads reales; aquí solo va qué cambia
 
 | Qué | Contrato | Para el cliente |
 |-----|----------|-----------------|
+| Empezar sin pre-test | `POST /learning/paths/{id}/skip-placement` ([ADR-055](adr/ADR-055-catalogo-de-metodos-de-estudio.md)) | Cuando `/lesson` da 409 por falta de nivelación, ofrecer «Hacer el pre-test» y «Empezar sin pre-test». Con `placement_skipped: true`, seguir ofreciendo el pre-test desde la clase |
 | Prueba de paso de la ruta | `POST /learning/paths/{id}/passage-test` ([ADR-042](adr/ADR-042-prueba-de-paso-de-la-ruta.md)) | Ofrecerla cuando `teaching.phase` es `completed` y hay `next_tier`. No mandar a la nivelación inicial ni pedir el tema |
 | Una sola respuesta por nivelación | **409** al reenviar ([ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md)) | Mostrar el resultado guardado y ofrecer una ronda nueva |
 | Mensajes del chat | `role` solo `user`/`system`; `content` hasta 20 000 caracteres ([ADR-046](adr/ADR-046-tope-del-chat-20000.md)) | Contador en la caja; nunca escribir como `assistant` |

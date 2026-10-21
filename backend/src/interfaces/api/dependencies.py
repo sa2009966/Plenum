@@ -219,7 +219,19 @@ def get_chat_tutor_service() -> "ChatTutorService":
         preferences=get_learning_preferences_service(),
         safety=get_content_safety(),
         event_bus=get_event_bus(),
+        image_finder=get_image_finder(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_image_finder() -> "ImageFinder | None":
+    """Fotos de Wikimedia (ADR-048, fase 2). Sin interruptor o sin clave para moderarlas: None."""
+    if not (settings.WIKIMEDIA_IMAGES_ENABLED and settings.OPENAI_API_KEY):
+        return None
+    from src.infrastructure.media.wikimedia_image_finder import WikimediaImageFinder
+    from src.infrastructure.openai.openai_moderator import OpenAIModerator
+
+    return WikimediaImageFinder(OpenAIModerator(settings.OPENAI_API_KEY).image_scores)
 
 
 @lru_cache(maxsize=1)
@@ -605,6 +617,7 @@ def get_teaching_service() -> "TeachingService":
         attempt_repository=get_attempt_repo(),
         safety=get_content_safety(),
         research=get_curriculum_research(),
+        image_finder=get_image_finder(),
     )
 
 

@@ -81,6 +81,9 @@ viendo.
 
 ## Fase 2 · Investigación y catálogo de métodos (ADR-055)
 
+> **Estado (2026-10-20):** ADR-055 propuesto, con las fuentes verificadas. Pendiente: revisión del
+> frontend del contrato de la fase 3 y la transcripción del vídeo.
+
 **Backend:**
 - Verificar las fuentes antes de escribir:
   - Dunlosky et al. 2013 (técnicas de estudio);
