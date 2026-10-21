@@ -17,6 +17,7 @@ from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
 from src.application.services.curriculum_research_service import CurriculumResearchService
+from src.application.services.learning_evidence_projector import graded_concept_evidence
 from src.application.services.quiz_service import QuizService
 from src.application.services.topic_catalog import TopicCatalog
 from src.domain.aggregates.learning_path import (
@@ -40,6 +41,7 @@ from src.domain.ports.repositories import (
     StudentProfileRepository,
 )
 from src.domain.services.cognitive_style import chosen_style
+from src.domain.services.concept_tagger import ConceptTagger
 from src.domain.services.visuals import extract_diagrams
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
@@ -452,18 +454,47 @@ class TeachingService:
             # Dos envíos casi simultáneos (doble clic, dos pestañas): el segundo
             # ya no cuenta como otra comprobación ni como más evidencia.
             raise NoPendingCheck(quiz_id)
+        # Se lee ANTES de enviar: así seguro que aún no tiene este intento, con
+        # cualquier bus (el de memoria proyecta al publicar; el outbox, después).
+        perfil = await self._profiles.find_by_student(user_id)
         # Mismo camino que cualquier quiz: calificación en servidor, evento y
         # projector. La evidencia de la clase NO tiene un sistema propio.
         intento = await self._quiz_service.submit_attempt(quiz_id, user_id, answers)
         correctas = sum(1 for q in intento.questions if q.is_correct)
         resultado = outcome_from(correctas, len(intento.questions))
         path.record_check(resultado)
-        # Se relee: el projector acaba de aplicar la evidencia de este intento.
-        perfil = await self._profiles.find_by_student(user_id)
+        perfil = await self._con_este_intento(perfil, user_id, quiz_id, intento)
         paso = self._policy.after_check(path, resultado, perfil)
         self._apply(path, paso)
         await self._paths.save(path)
         return CheckResult(path, resultado, intento, paso)
+
+    async def _con_este_intento(
+        self, perfil: StudentProfile | None, user_id: UUID, quiz_id: UUID, intento: QuizAttemptResultDTO
+    ) -> StudentProfile:
+        """El perfil con la evidencia de esta comprobación, para decidir el siguiente paso.
+
+        Antes se releía el perfil tras enviar, contando con que el projector ya la
+        hubiera aplicado. En producción el bus es el outbox: el evento se proyecta
+        después, así que se decidía con el dominio de antes de responder y la clase
+        pedía «afianzar» el tema recién superado en vez de pasar al siguiente.
+
+        Se aplica en memoria la misma evidencia que escribirá el projector, sin
+        guardarla: el perfil tiene un único escritor (invariante 1), como el
+        veredicto de la nivelación.
+        """
+        perfil = perfil or StudentProfile.create(user_id)
+        quiz = await self._quizzes.find_by_id(quiz_id)
+        if quiz is None:
+            return perfil
+        puntos = {q.index: q.score for q in intento.questions}
+        resultados, fallados, _, _ = graded_concept_evidence(
+            quiz.questions, lambda i: puntos.get(i, 0.0), ConceptTagger()
+        )
+        perfil.record_diagnostic_result(
+            concept_results=resultados, missed_concepts=fallados, at=intento.completed_at
+        )
+        return perfil
 
     async def next_suggestions(self, user_id: UUID, path_id: UUID) -> list[NextSuggestion]:
         """Cómo seguir tras una ruta (ADR-034). Hasta 3, sin temas ya completados.

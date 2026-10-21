@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from src.application.concurrency import with_concurrency_retry
 from src.domain.aggregates.student_profile import HIGH_LATENCY_THRESHOLD_MS, StudentProfile
 from src.domain.aggregates.tutor_interaction import TutorInteractionAggregate
@@ -29,6 +31,36 @@ from src.domain.services.learning_signal_detector import LearningSignalKind
 import logging
 
 logger = logging.getLogger("laria.learning")
+
+
+def graded_concept_evidence(
+    questions, score_at: Callable[[int], float], tagger: ConceptTagger
+) -> tuple[tuple[tuple[str, float], ...], tuple[str, ...], int, int]:
+    """Evidencia por concepto de un intento calificado: (resultados, fallados, etiquetados, sin etiquetar).
+
+    Pura y compartida: es lo que el projector escribe en el perfil, y lo que la clase
+    usa para decidir el siguiente paso antes de que el outbox lo haya proyectado.
+    """
+    resultados: list[tuple[str, float]] = []
+    fallados: list[str] = []
+    etiquetados = sin_etiquetar = 0
+    for i, question in enumerate(questions):
+        tagged = tagger.tag_question(question)
+        # Crédito parcial de una abierta (ADR-053): media idea es media
+        # evidencia, no un acierto ni un fallo.
+        item_ratio = score_at(i)
+        if not tagged.concept_tags:
+            # Ítem sin concepto conocido: cuenta para el mastery del
+            # documento, pero no se le inventa un concepto al que
+            # atribuirle evidencia (ADR-011).
+            sin_etiquetar += 1
+            continue
+        etiquetados += 1
+        for tag in tagged.concept_tags:
+            resultados.append((tag, item_ratio))
+            if item_ratio < 0.5:
+                fallados.append(tag)
+    return tuple(resultados), tuple(dict.fromkeys(fallados)), etiquetados, sin_etiquetar
 
 
 def _observed(event: TutorQuestionAskedEvent, kind: SignalKind) -> float:
@@ -317,8 +349,8 @@ class LearningEvidenceProjector:
             return
 
         ratio = (event.score / event.total) if event.total else 0.0
-        missed: list[str] = []
-        concept_results: list[tuple[str, float]] = []
+        missed_t: tuple[str, ...] = ()
+        results_t: tuple[tuple[str, float], ...] = ()
 
         etiquetados = 0
         sin_etiquetar = 0
@@ -338,26 +370,9 @@ class LearningEvidenceProjector:
             if attempt is not None and await self._es_reintento(attempt):
                 reintento = True
             if quiz is not None and attempt is not None and not reintento:
-                for i, question in enumerate(quiz.questions):
-                    tagged = self._tagger.tag_question(question)
-                    # Crédito parcial de una abierta (ADR-053): media idea es media
-                    # evidencia, no un acierto ni un fallo.
-                    item_ratio = attempt.score_at(i)
-                    ok = item_ratio >= 0.5
-                    if not tagged.concept_tags:
-                        # Ítem sin concepto conocido: cuenta para el mastery del
-                        # documento, pero no se le inventa un concepto al que
-                        # atribuirle evidencia (ADR-011).
-                        sin_etiquetar += 1
-                        continue
-                    etiquetados += 1
-                    for tag in tagged.concept_tags:
-                        concept_results.append((tag, item_ratio))
-                        if not ok:
-                            missed.append(tag)
-
-        missed_t = tuple(dict.fromkeys(missed))
-        results_t = tuple(concept_results)
+                results_t, missed_t, etiquetados, sin_etiquetar = graded_concept_evidence(
+                    quiz.questions, attempt.score_at, self._tagger
+                )
 
         async def _persist_profile():
             profile = await self._profile_repo.find_by_student(event.student_id)
