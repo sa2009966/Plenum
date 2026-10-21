@@ -87,7 +87,7 @@ def test_si_hace_el_pretest_despues_su_nivel_manda(entorno):  # noqa: F811
     paso = _leccion(c, h, ruta["id"])
 
     assert paso["path"]["tiers"] == ["basico", "intermedio"]
-    assert paso["path"]["placement_skipped"] is True
+    assert paso["path"]["placement_skipped"] is False, "ya lo hizo: no se le sigue ofreciendo"
 
 
 def test_saltar_el_pretest_no_salta_la_prueba_de_paso(entorno):  # noqa: F811

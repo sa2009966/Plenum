@@ -150,7 +150,7 @@ class LearningPathAggregate:
     #: estudiante supera la prueba de paso; antes se quedaba en su temario inicial.
     tiers: list[str] = field(default_factory=list)
     #: El alumno empezó sin el pre-test (ADR-055). Es una decisión suya, no evidencia:
-    #: no escribe nada en el perfil, y el pre-test se le sigue ofreciendo.
+    #: no escribe nada en el perfil, y el pre-test se le sigue ofreciendo hasta que lo haga.
     placement_skipped: bool = False
 
     @staticmethod

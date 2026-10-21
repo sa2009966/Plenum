@@ -103,7 +103,8 @@ calificada (invariante: una duda no es una nota).
   - La clase empieza por el **tramo básico**, con los prerrequisitos sin medir dados por sabidos,
     como ya hace la política para lo no medido.
   - El pre-test **sigue disponible** desde la clase. Si lo hace más tarde, su nivel manda: se abre
-    el tramo que corresponda, sin repetir lo superado (ADR-037).
+    el tramo que corresponda, sin repetir lo superado (ADR-037). Desde ese momento
+    `placement_skipped` vuelve a `false` y ya no se le ofrece.
   - Saltar el pre-test no salta la **prueba de paso**: para abrir el tramo siguiente sigue haciendo
     falta superarla.
 - **Pre-test y recuerdo activo son cosas distintas:**

@@ -306,6 +306,9 @@ class TeachingService:
         perfil = await self._profiles.find_by_student(user_id)
         await self._sync_assessment(path, perfil)
         await self._sync_tiers(path, perfil)
+        if path.placement_skipped and path.topic and perfil and perfil.level_for_topic(path.topic):
+            # Hizo el pre-test después de saltarlo: ya no hay que ofrecérselo.
+            path.placement_skipped = False
         t = path.teaching
         if t.phase == TeachingPhase.ASSESSMENT:
             await self._paths.save(path)
