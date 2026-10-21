@@ -89,6 +89,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             "voice_choice": profile.voice_choice,
             "assessment_open": profile.assessment_open,
             "assessment_choice": profile.assessment_choice,
+            "study_method_choice": profile.study_method_choice,
+            "study_pace_choice": profile.study_pace_choice,
             "session_minutes": profile.session_minutes,
             "daily_goal_minutes": profile.daily_goal_minutes,
             "pedagogical_memory": {
@@ -192,6 +194,8 @@ class MongoDBStudentProfileRepository(StudentProfileRepository):
             voice_choice=doc.get("voice_choice") or "",
             assessment_open=doc.get("assessment_open"),
             assessment_choice=doc.get("assessment_choice"),
+            study_method_choice=doc.get("study_method_choice"),
+            study_pace_choice=doc.get("study_pace_choice"),
             session_minutes=int(doc.get("session_minutes") or 0),
             daily_goal_minutes=int(doc.get("daily_goal_minutes") or 0),
             last_interaction_at=doc.get("last_interaction_at"),

@@ -154,6 +154,29 @@ def _abierta(item: dict, dificultad, tags: tuple[str, ...]) -> QuizQuestion:
         model_answer=" ".join(str(item.get("model_answer") or "").split()),
     )
 
+
+def _pregunta_de_repaso(item, request: LessonRequest) -> QuizQuestion | None:
+    """La pregunta sobre un concepto ya superado (recuerdo activo, intercalado), o None."""
+    if not request.review_concept or not isinstance(item, dict):
+        return None
+    try:
+        opciones = {str(k).strip().upper()[:1]: str(v).strip() for k, v in dict(item["options"]).items()}
+        correcta = str(item["correct_answer"]).strip().upper()[:1]
+        if len(opciones) < 3 or correcta not in opciones or not str(item["text"]).strip():
+            return None
+        return QuizQuestion(
+            text=str(item["text"]).strip(),
+            options=opciones,
+            correct_answer=correcta,
+            difficulty="medium",
+            # La evidencia va al concepto repasado: cuenta como repaso (ADR-051).
+            concept_tags=(request.review_concept,),
+            position=request.review_position,
+            concept_title=request.review_concept_title or request.review_concept,
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
 class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator, OpenAnswerJudge):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
@@ -421,11 +444,22 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                     concept_tags=(request.concept,),
                 )
             )
+        # Fase 4 (ADR-055). Lo que añade el método es un extra: si el modelo no lo
+        # trae bien, la lección sigue sin él (la comprobación del paso no cambia).
+        repaso = _pregunta_de_repaso(data.get("review_question"), request)
+        if repaso is not None:
+            preguntas = [repaso, *preguntas] if repaso.position == "before" else [*preguntas, repaso]
+        pasos: tuple[str, ...] = ()
+        if request.worked_example and isinstance(data.get("worked_example"), dict):
+            crudos = data["worked_example"].get("steps")
+            if isinstance(crudos, list):
+                pasos = tuple(" ".join(str(p).split()) for p in crudos if str(p).strip())[:8]
         return Lesson(
             explanation=explicacion,
             example=ejemplo,
             example_summary=str(data.get("example_summary") or ejemplo[:200]).strip(),
             check=tuple(preguntas),
+            worked_steps=pasos if len(pasos) >= 2 else (),
         )
 
     async def propose_next_topics(self, topic_label: str, level: str | None) -> list[str]:

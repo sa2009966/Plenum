@@ -618,6 +618,7 @@ def get_teaching_service() -> "TeachingService":
         safety=get_content_safety(),
         research=get_curriculum_research(),
         image_finder=get_image_finder(),
+        study_methods_enabled=settings.STUDY_METHODS_ENABLED,
     )
 
 

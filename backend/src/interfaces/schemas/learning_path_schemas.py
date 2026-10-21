@@ -62,6 +62,8 @@ class TeachingStateResponse(BaseModel):
     passed_concepts: list[str] = []
     #: Por qué la clase está aquí, en una frase para mostrar.
     reason: str = ""
+    #: Método aplicado al paso (ADR-055); None = «que decida LARIA».
+    study_method: Optional[str] = None
 
 
 class LearningPathResponse(BaseModel):
@@ -83,6 +85,9 @@ class LearningPathResponse(BaseModel):
     next_tier: Optional[Literal["intermedio", "avanzado"]] = None
     #: Empezó sin pre-test (ADR-055): el cliente le sigue ofreciendo hacerlo.
     placement_skipped: bool = False
+    #: Elegido para esta ruta (ADR-055); null = «que decida LARIA» o sin elegir.
+    study_method: Optional[str] = None
+    study_pace: Optional[str] = None
 
 
 class LearningPathListResponse(BaseModel):
@@ -103,6 +108,15 @@ class VisualResponse(BaseModel):
     source: str
 
 
+class WorkedStepResponse(BaseModel):
+    text: str
+    hidden: bool
+
+
+class WorkedExampleResponse(BaseModel):
+    steps: list[WorkedStepResponse]
+
+
 class LessonResponse(BaseModel):
     """El paso actual de la clase: explicación + comprobación pendiente."""
 
@@ -114,6 +128,9 @@ class LessonResponse(BaseModel):
     #: Esquemas que trae `markdown`, ya validados (ADR-048). El cliente los pinta donde
     #: aparece su bloque ```mermaid; la lista sirve para saber que hay alguno.
     visuals: list[VisualResponse] = []
+    #: Ejemplos resueltos (ADR-055, fase 4): los pasos con `hidden` son huecos para
+    #: completar y destapar; no se califican. null si el método no lo usa.
+    worked_example: Optional["WorkedExampleResponse"] = None
 
 
 class CheckAnswerRequest(BaseModel):

@@ -6,6 +6,7 @@ llamada al LLM.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import random
 import re
 from collections import Counter
@@ -68,13 +69,8 @@ def rebalance_answer_keys(questions: list[QuizQuestion]) -> list[QuizQuestion]:
 
         difficulty = question.difficulty
         balanced.append(
-            QuizQuestion(
-                text=question.text,
-                options=new_options,
-                correct_answer=new_correct,
-                difficulty=difficulty,
-                concept_tags=tuple(question.concept_tags),
-            )
+            # `replace`: conserva tipo, posición y concepto de repaso (ADR-053/055).
+            replace(question, options=new_options, correct_answer=new_correct, difficulty=difficulty)
         )
     return balanced
 
@@ -106,13 +102,8 @@ def shuffle_options(question: QuizQuestion, rng=None) -> QuizQuestion:
     letras = [chr(ord("A") + i) for i in range(len(textos))]
     nuevas = {letras[i]: textos[j] for i, j in enumerate(orden)}
     nueva_correcta = next(letra for letra, texto in nuevas.items() if texto == correcta)
-    return QuizQuestion(
-        text=question.text,
-        options=nuevas,
-        correct_answer=nueva_correcta,
-        difficulty=question.difficulty,
-        concept_tags=tuple(question.concept_tags),
-    )
+    # `replace`: barajar no puede borrar la posición ni el concepto de repaso (fase 4).
+    return replace(question, options=nuevas, correct_answer=nueva_correcta)
 
 
 def ensure_quiz_quality(questions: list[QuizQuestion], rng=None) -> list[QuizQuestion]:

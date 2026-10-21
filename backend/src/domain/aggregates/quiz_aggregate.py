@@ -82,6 +82,8 @@ class QuizAggregate:
                     kind=getattr(q, "kind", "choice"),
                     key_points=tuple(getattr(q, "key_points", ()) or ()),
                     model_answer=getattr(q, "model_answer", "") or "",
+                    position=getattr(q, "position", "after") or "after",
+                    concept_title=getattr(q, "concept_title", "") or "",
                 )
             )
         if document_id is None and not (topic or "").strip():

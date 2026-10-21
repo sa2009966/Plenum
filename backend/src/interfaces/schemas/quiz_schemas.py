@@ -25,6 +25,10 @@ class QuizQuestionPublicItem(BaseModel):
     #: "choice" u "open" (ADR-053). Una abierta trae `options: {}` y `max_chars`.
     kind: Literal["choice", "open"] = "choice"
     max_chars: int | None = None
+    #: Fase 4 (ADR-055): "before" se muestra antes de la explicación y se envía con el resto.
+    position: Literal["before", "after"] = "after"
+    #: Repaso de otro concepto («Repaso: Fracciones»); null si es del paso actual.
+    concept_title: str | None = None
 
 
 class QuizPublicResponse(BaseModel):
@@ -86,6 +90,7 @@ class AttemptQuestionResultItem(BaseModel):
     #: Las ideas clave y la respuesta modelo solo se muestran DESPUÉS de contestar.
     key_points: list[KeyPointResult] | None = None
     model_answer: str | None = None
+    concept_title: str | None = None
 
 
 class PlacementResult(BaseModel):
@@ -210,6 +215,10 @@ class PracticeRequest(BaseModel):
     assessment: AssessmentConfig | None = None
 
 
+StudyMethodKey = Literal["active_recall", "feynman", "worked_examples", "elaboration", "interleaving"]
+StudyPaceKey = Literal["free", "pomodoro_25_5", "pomodoro_15_3"]
+
+
 class AssessmentOverride(BaseModel):
     """Body opcional de la clase, la prueba de paso y los quizzes: la mezcla solo para esta vez."""
 
@@ -226,6 +235,19 @@ class AssessmentOverride(BaseModel):
 
 ExplanationStyle = Literal["simple", "step_by_step", "analogy", "visual", "mathematical", "technical"]
 
+
+
+class LessonOptions(AssessmentOverride):
+    """Body de `/lesson`: lo elegido en «Antes de empezar», que se GUARDA en la ruta (ADR-055).
+
+    Ausente = mantener lo de la ruta; `null` = «que decida LARIA».
+    """
+
+    study_method: StudyMethodKey | None = None
+    study_pace: StudyPaceKey | None = None
+
+    def choices(self) -> dict:
+        return {k: getattr(self, k) for k in ("study_method", "study_pace") if k in self.model_fields_set}
 
 class LearningPreferences(BaseModel):
     """Cómo quiere el estudiante que le expliquen (ADR-022) y cómo evaluarle (ADR-053).
@@ -251,3 +273,8 @@ class LearningPreferences(BaseModel):
     open_questions_enabled: bool = False
     #: Solo lectura: si se puede preguntar a LARIA durante la clase (ADR-054).
     class_questions_enabled: bool = False
+    #: Método y ritmo por defecto de sus rutas nuevas (ADR-055); null = «que decida LARIA» / libre.
+    study_method: StudyMethodKey | None = None
+    study_pace: StudyPaceKey | None = None
+    #: Solo lectura: si los métodos de estudio están activos.
+    study_methods_enabled: bool = False

