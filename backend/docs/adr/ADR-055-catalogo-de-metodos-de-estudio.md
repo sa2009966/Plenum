@@ -5,7 +5,8 @@
   agenda), ADR-053 (preguntas abiertas), ADR-054 (preguntar en clase), ADR-022 (estilo elegido),
   ADR-033 (tiempo de estudio), ADR-006 y ADR-015 (ofrecer, no imponer).
 - **Aprobado por el equipo (2026-10-20):** ritmo libre por defecto, recuerdo activo sobre conceptos
-  ya estudiados, y el pre-test (nivelación) como paso fijo y obligatorio del flujo (§3 bis).
+  ya estudiados, y el pre-test (nivelación) como paso fijo del flujo que **se ofrece siempre pero se
+  puede saltar** (§3 bis).
 - **Fases que lo implementan:** 3 (elegir), 4 (la clase cambia), 5 (modo sombra), 6 (proponer el
   cambio), 7 (calibrar).
 
@@ -86,14 +87,24 @@ calificada (invariante: una duda no es una nota).
   lección). «Explícalo tú» añade una corrección por rúbrica en cada paso. Por eso exige el
   interruptor de abiertas y queda bajo el límite de peticiones existente.
 
-### 3 bis. El pre-test no es un método: es un paso fijo del flujo
+### 3 bis. El pre-test no es un método: es un paso fijo del flujo, que se puede saltar
 - **Es un requisito funcional existente que se mantiene.** El pre-test es la **nivelación**
-  (ADR-016, ADR-017): se hace siempre que el alumno empieza un tema nuevo, para medir lo que ya
-  sabe de ese tema y decidir **desde qué nivel** empieza la explicación. Sin nivelación, la clase
-  no enseña: la ruta queda en `assessment` y `/lesson` responde `409` (ADR-028). Al cerrar un
-  tramo, la prueba de paso (ADR-042) cumple el mismo papel para abrir el siguiente nivel.
-- **No es seleccionable ni se puede saltar** desde la pantalla «Antes de empezar». Elegir método o
-  ritmo nunca lo sustituye. Ningún método lo elimina ni lo cambia.
+  (ADR-016, ADR-017): se **ofrece siempre** que el alumno empieza un tema nuevo, para medir lo que ya
+  sabe de ese tema y decidir **desde qué nivel** empieza la explicación. Al cerrar un tramo, la
+  prueba de paso (ADR-042) cumple el mismo papel para abrir el siguiente nivel.
+- **No es un método seleccionable.** Elegir método o ritmo nunca lo sustituye, y ningún método lo
+  elimina ni lo cambia.
+- **Pero no es obligatorio:** el alumno puede **saltarlo y continuar la clase** (ADR-006: ofrecer,
+  no bloquear). Hoy no es así —sin nivelación la ruta queda en `assessment` y `/lesson` responde
+  `409`—, así que esto **cambia el comportamiento actual** y se implementa en la fase 3:
+  - Saltarlo **no escribe nada en el perfil**: no hay evidencia, y «no medido» no es «medido en
+    cero». Se guarda solo en la ruta (`placement_skipped`), como decisión del alumno.
+  - La clase empieza por el **tramo básico**, con los prerrequisitos sin medir dados por sabidos,
+    como ya hace la política para lo no medido.
+  - El pre-test **sigue disponible** desde la clase. Si lo hace más tarde, su nivel manda: se abre
+    el tramo que corresponda, sin repetir lo superado (ADR-037).
+  - Saltar el pre-test no salta la **prueba de paso**: para abrir el tramo siguiente sigue haciendo
+    falta superarla.
 - **Pre-test y recuerdo activo son cosas distintas:**
 
 | | Pre-test (nivelación) | Recuerdo activo (método) |
@@ -101,11 +112,11 @@ calificada (invariante: una duda no es una nota).
 | Cuándo | Al **empezar** cada tema nuevo, una vez | **Durante** el aprendizaje, en cada paso |
 | Sobre qué | El tema que **aún no** estudió | Conceptos que **ya** estudió en la ruta |
 | Para qué | Medir conocimientos previos y fijar el nivel de partida | Recuperar lo aprendido y reforzar la retención |
-| ¿Obligatorio? | **Sí**, para todos | **No**, es una de las cinco opciones |
+| ¿Se ofrece? | **Siempre**, en cada tema nuevo; se puede saltar | Solo si el alumno lo elige, como uno de los cinco métodos |
 | Qué decide | El nivel del tema y el tramo de la ruta | Nada del nivel: es un ítem más de evidencia y cuenta como repaso (ADR-051) |
 
-- La fase 3 debe mostrar el pre-test **antes** de la pantalla de método cuando el tema todavía no
-  tiene nivelación, igual que hoy.
+- **Orden en la fase 3:** si el tema aún no tiene nivelación, primero se ofrece el pre-test
+  («Hacer el pre-test» / «Empezar sin pre-test») y después la pantalla de método y ritmo.
 
 ### 4. Ritmos
 
@@ -184,6 +195,10 @@ calificada (invariante: una duda no es una nota).
   (`StudyMethodChosenEvent`) y lo escribe el projector (escritor único).
 - `POST /learning/paths/{id}/lesson` acepta `study_method` y `study_pace` «solo para esta clase»,
   como `assessment`. Un método no disponible da `422 study_method_unavailable` con su `reason`.
+- `POST /learning/paths/{id}/skip-placement`: el alumno empieza sin pre-test. Solo vale con la ruta
+  en `assessment` (si no, `409`). Marca `placement_skipped` en la ruta y la pasa al primer paso del
+  tramo básico. La ruta devuelve `placement_skipped` para que el cliente siga ofreciendo el
+  pre-test. Fuera del interruptor de métodos: es parte del flujo base.
 - `teaching` devuelve `study_method` efectivo (el que se aplicó al paso), que puede diferir del
   pedido si un requisito no se cumple (ver §2).
 - `available` se calcula **por ruta** cuando se pide con `?path_id=` (el intercalado depende de los
