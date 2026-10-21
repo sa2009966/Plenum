@@ -32,6 +32,8 @@ class MongoDBQuizRepository(QuizRepository):
             "kind": q.kind,
             "key_points": list(q.key_points),
             "model_answer": q.model_answer,
+            "position": q.position,
+            "concept_title": q.concept_title,
         }
 
     @staticmethod
@@ -45,6 +47,8 @@ class MongoDBQuizRepository(QuizRepository):
             kind=doc.get("kind", "choice"),
             key_points=tuple(doc.get("key_points") or ()),
             model_answer=doc.get("model_answer", ""),
+            position=doc.get("position", "after"),
+            concept_title=doc.get("concept_title", ""),
         )
 
     @staticmethod

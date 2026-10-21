@@ -38,6 +38,14 @@ class LessonRequest:
     #: Tipo de cada pregunta de la comprobación, en el mismo orden ("choice"/"open",
     #: ADR-053). Vacío = todas de opción múltiple, como antes.
     check_kinds: tuple[str, ...] = ()
+    #: Fase 4 (ADR-055): lo que el método pide redactar. Lo decide `study_lesson.plan_for`.
+    study_method: str | None = None
+    review_concept: str = ""
+    review_concept_title: str = ""
+    review_position: str = "after"
+    why_guided: bool = False
+    explain_it: bool = False
+    worked_example: bool = False
     #: Hay buscador de imágenes con licencia (ADR-048, fase 2): se puede pedir una foto.
     images: bool = False
 
@@ -48,6 +56,8 @@ class Lesson:
     example: str
     example_summary: str
     check: tuple[QuizQuestion, ...]
+    #: Ejemplos resueltos: la solución por pasos (sin ocultar; los oculta el dominio).
+    worked_steps: tuple[str, ...] = ()
 
     @property
     def markdown(self) -> str:

@@ -25,6 +25,10 @@ class QuizQuestionPublicItem(BaseModel):
     #: "choice" u "open" (ADR-053). Una abierta trae `options: {}` y `max_chars`.
     kind: Literal["choice", "open"] = "choice"
     max_chars: int | None = None
+    #: Fase 4 (ADR-055): "before" se muestra antes de la explicación y se envía con el resto.
+    position: Literal["before", "after"] = "after"
+    #: Repaso de otro concepto («Repaso: Fracciones»); null si es del paso actual.
+    concept_title: str | None = None
 
 
 class QuizPublicResponse(BaseModel):
@@ -86,6 +90,7 @@ class AttemptQuestionResultItem(BaseModel):
     #: Las ideas clave y la respuesta modelo solo se muestran DESPUÉS de contestar.
     key_points: list[KeyPointResult] | None = None
     model_answer: str | None = None
+    concept_title: str | None = None
 
 
 class PlacementResult(BaseModel):

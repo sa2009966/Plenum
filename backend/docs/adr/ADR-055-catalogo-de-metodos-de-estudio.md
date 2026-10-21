@@ -1,6 +1,6 @@
 # ADR-055: Catálogo de métodos de estudio y ritmos
 
-- **Estado:** Aceptado. Fase 3 implementada el 2026-10-21, detrás de `STUDY_METHODS_ENABLED`: elegir, validar, guardar en la ruta e informar el método efectivo. Cambiar cómo se arma la lección es la fase 4. · **Fecha:** 2026-10-20
+- **Estado:** Aceptado. Fases 3 y 4 implementadas el 2026-10-21, detrás de `STUDY_METHODS_ENABLED`: elegir, guardar en la ruta y que el método cambie de verdad la lección. · **Fecha:** 2026-10-20
 - **Plan:** fase 2 de `5_PLAN_METODOS_Y_CLASE.md` · **Usa:** ADR-028 (clase), ADR-051 (memoria y
   agenda), ADR-053 (preguntas abiertas), ADR-054 (preguntar en clase), ADR-022 (estilo elegido),
   ADR-033 (tiempo de estudio), ADR-006 y ADR-015 (ofrecer, no imponer).
@@ -255,6 +255,38 @@ Va en campos, no dentro del markdown, para que el cliente no tenga que adivinarl
   - Está fuera del interruptor de métodos: es parte del flujo base.
 - El cliente decide si muestra la sección de métodos con `study_methods_enabled`; el 404 es solo el
   respaldo.
+
+## Fase 4, verificada (2026-10-21)
+- **Dónde está cada parte:**
+  - **Qué hace cada método:** `src/domain/study_lesson.py` (puro), con `plan_for` y el desvanecimiento
+    `fade`.
+  - **Qué se le pide redactar al modelo:** `TutorPolicy._metodo_en_la_leccion` y
+    `_claves_del_metodo`.
+- **Recuerdo activo:** la pregunta previa va sobre el **último concepto superado**. Si es el primer
+  concepto, no hay pregunta previa.
+- **Intercalado:** pregunta sobre el concepto superado **más olvidado** según el modelo de memoria; si
+  no hay medición, el más antiguo. Con menos de dos superados, se comporta como recuerdo activo y lo
+  dice.
+- **Ejemplos resueltos:**
+  - el desvanecimiento es hacia atrás: se ocultan los últimos pasos, **uno más por cada acierto** en
+    el mismo concepto;
+  - el primer paso siempre se ve;
+  - en el tramo avanzado no se aplica, y la clase lo dice.
+- **La pregunta de repaso es evidencia de su concepto,** y por eso cuenta como repaso (ADR-051).
+  **No decide** si se entendió el paso actual: se excluye del resultado de la comprobación.
+- **Con el modelo real** (gpt-4o-mini, «Fracciones equivalentes»), los cinco métodos cumplen:
+  - recuerdo activo: la pregunta previa con `position: before`;
+  - intercalado: la pregunta de repaso al final;
+  - Explícalo tú: la última pregunta es abierta;
+  - el porqué: 3 de 3 con «¿Por qué» en la explicación y en la comprobación;
+  - ejemplos resueltos: de 5 a 6 pasos.
+- **Dos fallos encontrados al medir:**
+  - **La primera versión** daba las claves extra (`review_question`, `worked_example`) como
+    instrucción suelta y el modelo **las omitía**. Ahora van en la lista de claves del JSON, marcadas
+    como obligatorias.
+  - **Al barajar las opciones** (`quiz_quality`) se perdían `position` y `concept_title`, porque la
+    pregunta se reconstruía sin ellos. Ahora se usa `replace`.
+- **Tests:** `tests/api/test_metodos_en_la_clase_e2e.py` (12).
 
 ## Consecuencias
 - **A favor:** el catálogo se apoya en técnicas con evidencia y deja fuera lo que no la tiene. Elegir

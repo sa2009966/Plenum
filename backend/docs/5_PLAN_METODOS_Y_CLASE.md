@@ -82,9 +82,9 @@ viendo.
 ## Fase 2 · Investigación y catálogo de métodos (ADR-055)
 
 > **Estado (2026-10-21):**
-> - **Fases 1, 2 y 3 hechas en el backend.** La 3: catálogo, preferencias, elección guardada en la
->   ruta y método efectivo, detrás de `STUDY_METHODS_ENABLED`.
-> - **Siguiente:** fase 4, el método cambia la lección.
+> - **Fases 1 a 4 hechas en el backend.** La 4: el método cambia de verdad la lección, verificado
+>   con el modelo real.
+> - **Siguiente:** fase 5, detectar en modo sombra cuándo un método no funciona.
 > - **Pendiente:** la transcripción del vídeo.
 
 **Backend:**

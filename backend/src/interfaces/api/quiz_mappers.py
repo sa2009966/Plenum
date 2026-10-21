@@ -21,6 +21,8 @@ def quiz_to_public_response(quiz) -> QuizPublicResponse:
                 options=q.options,
                 difficulty=getattr(q.difficulty, "value", q.difficulty),
                 kind=getattr(q, "kind", "choice"),
+                position=getattr(q, "position", "after") or "after",
+                concept_title=getattr(q, "concept_title", None) or None,
                 max_chars=getattr(q, "max_chars", None)
                 if hasattr(q, "max_chars")
                 else (_MAX if getattr(q, "kind", "choice") == "open" else None),
@@ -53,4 +55,5 @@ def attempt_question_item(q) -> AttemptQuestionResultItem:
             else None
         ),
         model_answer=getattr(q, "model_answer", None),
+        concept_title=getattr(q, "concept_title", None),
     )

@@ -78,6 +78,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "passed_concepts": list(t.passed_concepts),
             "reason": t.reason,
             "study_method": t.study_method,
+            "worked_steps": list(t.worked_steps),
+            "worked_hidden": t.worked_hidden,
             "updated_at": t.updated_at,
         }
 
@@ -102,6 +104,8 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             passed_concepts=list(d.get("passed_concepts") or []),
             reason=d.get("reason", ""),
             study_method=d.get("study_method"),
+            worked_steps=list(d.get("worked_steps") or []),
+            worked_hidden=int(d.get("worked_hidden") or 0),
         )
         if d.get("updated_at"):
             estado.updated_at = d["updated_at"]

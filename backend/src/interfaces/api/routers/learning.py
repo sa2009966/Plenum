@@ -61,6 +61,8 @@ from src.interfaces.schemas.learning_path_schemas import (
     ReviewItemResponse,
     StudySummaryResponse,
     TeachingStateResponse,
+    WorkedExampleResponse,
+    WorkedStepResponse,
 )
 from src.application.services.review_service import ConceptWithoutReviews, ReviewScheduleService
 from src.domain.assessment import AssessmentMix
@@ -584,6 +586,19 @@ async def lesson(
         markdown=markdown,
         check=quiz_to_public_response(paso.check) if paso.check else None,
         visuals=[e.to_dict() for e in esquemas],
+        worked_example=_ejemplo_resuelto(path) if paso.check else None,
+    )
+
+
+def _ejemplo_resuelto(path: LearningPathAggregate) -> WorkedExampleResponse | None:
+    """Los pasos del ejemplo con los últimos ocultos (desvanecimiento, ADR-055)."""
+    from src.domain.study_lesson import fade
+
+    t = path.teaching
+    if not t.worked_steps:
+        return None
+    return WorkedExampleResponse(
+        steps=[WorkedStepResponse(text=texto, hidden=oculto) for texto, oculto in fade(t.worked_steps, t.worked_hidden)]
     )
 
 

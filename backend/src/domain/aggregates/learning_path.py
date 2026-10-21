@@ -96,6 +96,10 @@ class TeachingState:
     #: Método que se aplicó al paso actual (ADR-055). Puede diferir del elegido si un
     #: requisito no se cumple; None = «que decida LARIA».
     study_method: str | None = None
+    #: Ejemplo resuelto del paso (fase 4): sus pasos y cuántos se ocultan. Se guarda para
+    #: que una recarga devuelva el mismo, como la explicación.
+    worked_steps: list[str] = field(default_factory=list)
+    worked_hidden: int = 0
     updated_at: datetime = field(default_factory=_utc_now)
 
 

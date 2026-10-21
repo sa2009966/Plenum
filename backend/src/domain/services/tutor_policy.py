@@ -366,6 +366,44 @@ def _en_clase(sesion) -> str:
         )
     return "".join(partes)
 
+
+def _metodo_en_la_leccion(req) -> str:
+    """Cómo cambia la explicación según el método (ADR-055, fase 4). Lo decidió el dominio."""
+    partes = []
+    if getattr(req, "why_guided", False):
+        partes.append(
+            " La explanation avanza con 2 o 3 preguntas «¿Por qué…?» que se responden en el propio "
+            "texto, conectando el concepto con lo que ya sabe. La PRIMERA pregunta de check empieza "
+            "literalmente por «¿Por qué»."
+        )
+    if getattr(req, "explain_it", False):
+        partes.append(
+            f" La ÚLTIMA pregunta de check es abierta y pide «Explica con tus palabras, como si se lo "
+            f"enseñaras a alguien, …» sobre «{req.concept_title}»; sus key_points son las ideas "
+            "esenciales del concepto."
+        )
+    return "".join(partes)
+
+
+def _claves_del_metodo(req) -> str:
+    """Claves EXTRA del JSON que pide el método. Medido: como instrucción suelta el modelo las
+    omitía; tienen que ir en la lista de claves, marcadas como obligatorias."""
+    partes = []
+    if getattr(req, "worked_example", False):
+        partes.append(
+            ' worked_example (OBLIGATORIA): {"steps": [de 3 a 6 pasos en orden que resuelven el '
+            "ejemplo de example, cada uno una frase o expresión corta]}."
+        )
+    if getattr(req, "review_concept_title", ""):
+        partes.append(
+            f" review_question (OBLIGATORIA): UNA pregunta de opción múltiple con text, options "
+            f'(objeto {{"A":..,"B":..,"C":..,"D":..}}) y correct_answer sobre «{req.review_concept_title}», '
+            "un concepto que el estudiante ya superó, para que lo recupere sin mirar; no tiene que "
+            "ver con el ejemplo de hoy."
+        )
+    return (" Además, el JSON lleva estas claves:" + "".join(partes)) if partes else ""
+
+
 @dataclass(frozen=True)
 class ChatPrompt:
     system: str
@@ -510,6 +548,7 @@ class TutorPolicy:
             if req.key_points
             else ""
         )
+        metodo = _metodo_en_la_leccion(req)
         dificultades = ", ".join(d.value for d in req.check_difficulties)
         tipos = tuple(getattr(req, "check_kinds", ()) or ())
         con_abiertas = "open" in tipos
@@ -524,7 +563,7 @@ class TutorPolicy:
             system=(
                 f"{_IDENTIDAD}{_persona(req.persona)} Estás dando una clase sobre «{req.topic_label}». El concepto de "
                 f"este paso es «{req.concept_title}» y NO otro: no adelantes temas siguientes. "
-                f"{variante}{estilo}{evitar}{referencia} "
+                f"{variante}{estilo}{evitar}{referencia}{metodo} "
                 + (f"Nivel del estudiante: {nivel[0]}. {nivel[1]} " if nivel[0] else "")
                 + "Responde SOLO en JSON con las claves: explanation (markdown, "
                 + (
@@ -532,19 +571,28 @@ class TutorPolicy:
                     if req.variant.value == "consolidate"
                     else _extension_por_sesion(req.session_minutes)
                 )
-                + ", sin el ejemplo), example (markdown, un ejemplo concreto y resuelto), "
-                "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
+                + ", sin el ejemplo), example (markdown, "
+                + (
+                    "SOLO el enunciado de un ejemplo concreto, sin resolverlo), "
+                    if getattr(req, "worked_example", False)
+                    else "un ejemplo concreto y resuelto), "
+                )
+                + "example_summary (una frase que resuma el ejemplo), check (lista de EXACTAMENTE "
                 f"{len(req.check_difficulties)} preguntas "
                 + ("" if con_abiertas else "de opción múltiple ")
                 + f"sobre «{req.concept_title}», "
-                f"con dificultades en este orden: {dificultades}; cada una de opción múltiple con text, options "
+                f"con dificultades en este orden: {dificultades}; "
+                + ("el text de la PRIMERA empieza por «¿Por qué»; " if getattr(req, "why_guided", False) else "")
+                + "cada una de opción múltiple con text, options "
                 '(objeto {"A":..,"B":..,"C":..,"D":..}) y correct_answer (la letra)).'
                 + orden_tipos
                 + " Las preguntas comprueban comprensión, no memoria literal, y no repiten el ejemplo. "
                 "Cada pregunta tiene UNA sola opción correcta: ninguna otra opción puede ser "
                 "equivalente a ella (p. ej. 3/4 y 9/12, o 0,5 y 1/2)."
+                + _claves_del_metodo(req)
             ),
-            user=f"Prepara este paso de la clase sobre «{req.concept_title}».",
+            user=f"Prepara este paso de la clase sobre «{req.concept_title}»."
+            + (" Incluye TODAS las claves pedidas." if _claves_del_metodo(req) else ""),
         )
 
     def propose_next_topics(self, topic_label: str, level: str | None) -> ChatPrompt:

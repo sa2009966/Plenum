@@ -12,7 +12,7 @@ repositorio: cada petición HTTP continúa exactamente donde quedó la anterior.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
@@ -55,6 +55,7 @@ from src.domain.assessment import check_layout
 from src.domain.class_session import ClassSession
 from src.domain.assessment import AssessmentMix
 from src.domain.study_methods import availability, effective_method
+from src.domain.study_lesson import MethodPlan, fade, plan_for
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -362,6 +363,12 @@ class TeachingService:
             # Body > lo guardado en la ruta > preferencia > 3+3 (ADR-055).
             mezcla = await self._quiz_service.effective_mix(user_id, assessment or _mezcla_de(path))
             dificultades, tipos = check_layout(dificultades, mezcla)
+        plan = self._plan_del_metodo(path, perfil)
+        if plan.explain_it:
+            # «Explícalo tú»: la última pregunta es abierta (las abiertas están activas: si no,
+            # el método no habría sido efectivo).
+            tipos = (*(tipos or ("choice",) * len(dificultades))[:-1], "open")
+        repaso = path.module(plan.review_concept) if plan.review_concept else None
         peticion = LessonRequest(
             topic_label=path.title,
             concept=t.concept,
@@ -369,6 +376,13 @@ class TeachingService:
             variant=t.variant,
             check_difficulties=dificultades,
             check_kinds=tipos,
+            study_method=plan.method,
+            review_concept=plan.review_concept or "",
+            review_concept_title=((repaso.title if repaso else None) or plan.review_concept or "") if plan.review_concept else "",
+            review_position=plan.review_position,
+            why_guided=plan.why_guided,
+            explain_it=plan.explain_it,
+            worked_example=plan.worked_hidden is not None,
             # El nivel del tramo del módulo: un módulo avanzado se explica a nivel
             # avanzado aunque lo pida alguien que aún no lo es del todo (ADR-037).
             level=(modulo.tier if modulo and modulo.tier else None)
@@ -397,10 +411,11 @@ class TeachingService:
         encontradas = {q: await self._images.find(q) for q in image_requests(markdown)} if self._images else {}
         markdown, _ = place_images(strip_foreign_images(markdown), encontradas)
         path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
-        metodo, motivo = self._metodo_efectivo(path, perfil)
-        path.teaching.study_method = metodo
-        if motivo:
-            path.teaching.reason = motivo
+        path.teaching.study_method = plan.method
+        path.teaching.worked_steps = list(leccion.worked_steps) if plan.worked_hidden is not None else []
+        path.teaching.worked_hidden = plan.worked_hidden or 0
+        if plan.note:
+            path.teaching.reason = plan.note
         await self._paths.save(path)
         return LessonStep(path, quiz)
 
@@ -427,6 +442,25 @@ class TeachingService:
                 raise StudyMethodUnavailable(disp.text or "Ese método no está disponible ahora.")
         path.choose_study(**cambios)
         await self._paths.save(path)
+
+    def _plan_del_metodo(self, path: LearningPathAggregate, perfil) -> MethodPlan:
+        """Qué cambia en este paso según el método efectivo (ADR-055, fase 4)."""
+        metodo, motivo = self._metodo_efectivo(path, perfil)
+        t = path.teaching
+        dominio = (
+            {c: m.effective_mastery() for c, m in perfil.mastery_by_concept.items() if m.informs_decision}
+            if perfil
+            else {}
+        )
+        plan = plan_for(
+            metodo,
+            current=t.concept,
+            passed=list(t.passed_concepts),
+            tier=path.current_tier,
+            understood_streak=t.understood_streak,
+            effective_mastery=dominio,
+        )
+        return replace(plan, note=plan.note or motivo) if (motivo and not plan.note) else plan
 
     def _metodo_efectivo(self, path: LearningPathAggregate, perfil) -> tuple[str | None, str]:
         """El método que se aplica al paso: el de la ruta, si no el de su preferencia (ADR-055)."""
@@ -558,8 +592,11 @@ class TeachingService:
         # Mismo camino que cualquier quiz: calificación en servidor, evento y
         # projector. La evidencia de la clase NO tiene un sistema propio.
         intento = await self._quiz_service.submit_attempt(quiz_id, user_id, answers)
-        correctas = sum(1 for q in intento.questions if q.is_correct)
-        resultado = outcome_from(correctas, len(intento.questions))
+        # La pregunta de repaso de otro concepto (fase 4) es evidencia de ESE concepto:
+        # no decide si se entendió el paso actual.
+        del_paso = [q for q in intento.questions if not getattr(q, "concept_title", None)] or intento.questions
+        correctas = sum(1 for q in del_paso if q.is_correct)
+        resultado = outcome_from(correctas, len(del_paso))
         path.record_check(resultado)
         perfil = await self._con_este_intento(perfil, user_id, quiz_id, intento)
         paso = self._policy.after_check(path, resultado, perfil)

@@ -48,6 +48,15 @@ class QuizQuestion:
     #: una respuesta de ejemplo. Nunca se envían al cliente antes de contestar.
     key_points: tuple[str, ...] = ()
     model_answer: str = ""
+    #: Fase 4 (ADR-055): "before" = se muestra antes de la explicación (recuerdo activo).
+    position: str = "after"
+    #: Título de OTRO concepto cuando la pregunta es un repaso («Repaso: Fracciones»).
+    concept_title: str = ""
+
+    @property
+    def is_review(self) -> bool:
+        """Repasa otro concepto: cuenta como evidencia de ese, no decide el paso actual."""
+        return bool(self.concept_title)
 
     @property
     def is_open(self) -> bool:

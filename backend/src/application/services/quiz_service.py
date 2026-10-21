@@ -481,6 +481,7 @@ class QuizService:
             is_correct=attempt.per_question_correct[i],
             kind=q.kind,
             score=attempt.score_at(i),
+            concept_title=q.concept_title or None,
         )
         corregida = attempt.open_results.get(i)
         if q.is_open and corregida:
@@ -550,6 +551,8 @@ class QuizService:
                     difficulty=self._difficulty_str(q.difficulty),
                     kind=q.kind,
                     max_chars=MAX_ANSWER_CHARS if q.is_open else None,
+                    position=q.position,
+                    concept_title=q.concept_title or None,
                 )
                 for i, q in enumerate(quiz.questions)
             ],

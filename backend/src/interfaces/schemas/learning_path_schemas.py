@@ -108,6 +108,15 @@ class VisualResponse(BaseModel):
     source: str
 
 
+class WorkedStepResponse(BaseModel):
+    text: str
+    hidden: bool
+
+
+class WorkedExampleResponse(BaseModel):
+    steps: list[WorkedStepResponse]
+
+
 class LessonResponse(BaseModel):
     """El paso actual de la clase: explicación + comprobación pendiente."""
 
@@ -119,6 +128,9 @@ class LessonResponse(BaseModel):
     #: Esquemas que trae `markdown`, ya validados (ADR-048). El cliente los pinta donde
     #: aparece su bloque ```mermaid; la lista sirve para saber que hay alguno.
     visuals: list[VisualResponse] = []
+    #: Ejemplos resueltos (ADR-055, fase 4): los pasos con `hidden` son huecos para
+    #: completar y destapar; no se califican. null si el método no lo usa.
+    worked_example: Optional["WorkedExampleResponse"] = None
 
 
 class CheckAnswerRequest(BaseModel):
