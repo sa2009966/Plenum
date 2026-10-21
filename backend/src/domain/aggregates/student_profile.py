@@ -401,6 +401,9 @@ class StudentProfile:
     #: Abiertas y de opción múltiple en sus evaluaciones (ADR-053). None = 3 + 3.
     assessment_open: int | None = None
     assessment_choice: int | None = None
+    #: Método y ritmo por defecto de sus rutas nuevas (ADR-055). None = «que decida LARIA» / libre.
+    study_method_choice: str | None = None
+    study_pace_choice: str | None = None
     #: Minutos por sesión de clase (10/20/30/45); 0 = sin límite (ADR-033).
     session_minutes: int = 0
     #: Objetivo diario en minutos (10/15/30/45/60); 0 = sin objetivo.
@@ -531,6 +534,16 @@ class StudentProfile:
     def choose_study_goals(self, session_minutes: int | None, daily_goal_minutes: int | None) -> None:
         self.session_minutes = int(session_minutes or 0)
         self.daily_goal_minutes = int(daily_goal_minutes or 0)
+        self.updated_at = _utc_now()
+
+    def choose_study(self, study_method: str | None, study_pace: str | None) -> None:
+        from src.domain.study_methods import METHOD_KEYS, PACE_KEYS
+
+        if study_method is not None and study_method not in METHOD_KEYS:
+            raise ValueError("Ese método no existe.")
+        if study_pace is not None and study_pace not in PACE_KEYS:
+            raise ValueError("Ese ritmo no existe.")
+        self.study_method_choice, self.study_pace_choice = study_method, study_pace
         self.updated_at = _utc_now()
 
     def choose_assessment(self, open_questions: int, choice_questions: int) -> None:

@@ -10,6 +10,7 @@ from src.domain.events.domain_events import (
     VoiceChosenEvent,
     AssessmentChosenEvent,
     ClassQuestionAskedEvent,
+    StudyMethodChosenEvent,
     TutorQuestionAskedEvent,
 )
 from src.domain.ports.event_bus import EventBus
@@ -153,6 +154,7 @@ class LearningEvidenceProjector:
         await self._event_bus.subscribe(StudyGoalsChosenEvent, self.handle_study_goals_chosen)
         await self._event_bus.subscribe(AssessmentChosenEvent, self.handle_assessment_chosen)
         await self._event_bus.subscribe(ClassQuestionAskedEvent, self.handle_class_question)
+        await self._event_bus.subscribe(StudyMethodChosenEvent, self.handle_study_method_chosen)
 
     async def handle_tutor_question(self, event: TutorQuestionAskedEvent) -> None:
         """Unifica ask → perfil (además de la interacción ya guardada en el servicio)."""
@@ -262,6 +264,24 @@ class LearningEvidenceProjector:
             if profile.was_event_applied(event.event_id):
                 return profile
             profile.choose_study_goals(event.session_minutes, event.daily_goal_minutes)
+            profile.mark_event_applied(event.event_id)
+            await self._profile_repo.save(profile)
+            return profile
+
+        await with_concurrency_retry(_persist_profile)
+
+    async def handle_study_method_chosen(self, event: StudyMethodChosenEvent) -> None:
+        """Guarda método y ritmo por defecto (ADR-055). Por evento (invariante 1)."""
+        if self._profile_repo is None:
+            return
+
+        async def _persist_profile():
+            profile = await self._profile_repo.find_by_student(event.student_id)
+            if profile is None:
+                profile = StudentProfile.create(event.student_id)
+            if profile.was_event_applied(event.event_id):
+                return profile
+            profile.choose_study(event.study_method, event.study_pace)
             profile.mark_event_applied(event.event_id)
             await self._profile_repo.save(profile)
             return profile

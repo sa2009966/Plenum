@@ -81,8 +81,11 @@ viendo.
 
 ## Fase 2 · Investigación y catálogo de métodos (ADR-055)
 
-> **Estado (2026-10-20):** ADR-055 propuesto, con las fuentes verificadas. Pendiente: revisión del
-> frontend del contrato de la fase 3 y la transcripción del vídeo.
+> **Estado (2026-10-21):**
+> - **Fases 1 a 4 hechas en el backend.** La 4: el método cambia de verdad la lección, verificado
+>   con el modelo real.
+> - **Siguiente:** fase 5, detectar en modo sombra cuándo un método no funciona.
+> - **Pendiente:** la transcripción del vídeo.
 
 **Backend:**
 - Verificar las fuentes antes de escribir:

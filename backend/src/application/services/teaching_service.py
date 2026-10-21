@@ -12,7 +12,7 @@ repositorio: cada petición HTTP continúa exactamente donde quedó la anterior.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from src.application.dto.quiz_dto import QuizAttemptResultDTO
@@ -43,7 +43,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.services.cognitive_style import chosen_style
 from src.domain.services.concept_tagger import ConceptTagger
-from src.domain.services.visuals import extract_diagrams, image_requests, place_images
+from src.domain.services.visuals import extract_diagrams, image_requests, place_images, strip_foreign_images
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
     display_label,
@@ -53,6 +53,9 @@ from src.domain.services.diagnostic_planner import (
 from src.domain.services.quiz_quality import ensure_quiz_quality
 from src.domain.assessment import check_layout
 from src.domain.class_session import ClassSession
+from src.domain.assessment import AssessmentMix
+from src.domain.study_methods import availability, effective_method
+from src.domain.study_lesson import MethodPlan, fade, plan_for
 from src.domain.services.teaching_policy import (
     NextStep,
     TeachingPolicy,
@@ -65,6 +68,21 @@ logger = logging.getLogger("laria.teaching")
 #: Un temario propuesto por el modelo se acota, por tramo (ADR-037). Antes eran 6
 #: para toda la ruta, y la ruta no crecía: tras esas clases no había más.
 MAX_SYLLABUS = 8
+
+
+def _mezcla_de(path) -> "AssessmentMix | None":
+    """La mezcla guardada en la ruta, si el alumno eligió una para ella."""
+    if path.assessment_open is None or path.assessment_choice is None:
+        return None
+    return AssessmentMix(path.assessment_open, path.assessment_choice)
+
+
+class StudyMethodUnavailable(ValueError):
+    """El método pedido no se puede usar en esta ruta ahora (ADR-055)."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.text = text
 
 
 class ConceptNotInPath(LookupError):
@@ -132,7 +150,10 @@ class TeachingService:
         safety=None,
         research: CurriculumResearchService | None = None,
         image_finder: ImageFinder | None = None,
+        study_methods_enabled: bool = False,
     ) -> None:
+        #: Métodos de estudio (ADR-055). Solo `True` literal: un doble de prueba no lo enciende.
+        self._study_methods_enabled = study_methods_enabled is True
         #: Fotos con licencia para objetos reales (ADR-048, fase 2); None = apagado.
         self._images = image_finder
         self._paths = path_repository
@@ -299,13 +320,16 @@ class TeachingService:
 
     # --- Clase ----------------------------------------------------------------------
 
-    async def lesson(self, user_id: UUID, path_id: UUID, assessment=None) -> LessonStep:
+    async def lesson(
+        self, user_id: UUID, path_id: UUID, assessment=None, choices: dict | None = None
+    ) -> LessonStep:
         """El paso actual de la clase. Si ya se entregó y espera respuesta, el MISMO.
 
         Así una recarga, otra pestaña u otra petición recuperan exactamente la
         explicación y la comprobación pendientes, sin generar ni cobrar otra.
         """
         path = await self.get_owned(user_id, path_id)
+        await self._guardar_elecciones(path, assessment, choices)
         await self._tema_seguro(path.title)
         perfil = await self._profiles.find_by_student(user_id)
         await self._sync_assessment(path, perfil)
@@ -335,9 +359,16 @@ class TeachingService:
         modulo = path.module(t.concept)
         vuelta = path.module(t.return_to) if t.return_to else None
         dificultades, tipos = check_difficulties(t.variant), ()
-        if getattr(self._quiz_service, "open_questions_enabled", False) is True:
-            mezcla = await self._quiz_service.effective_mix(user_id, assessment)
+        if self._abiertas_activas():
+            # Body > lo guardado en la ruta > preferencia > 3+3 (ADR-055).
+            mezcla = await self._quiz_service.effective_mix(user_id, assessment or _mezcla_de(path))
             dificultades, tipos = check_layout(dificultades, mezcla)
+        plan = self._plan_del_metodo(path, perfil)
+        if plan.explain_it:
+            # «Explícalo tú»: la última pregunta es abierta (las abiertas están activas: si no,
+            # el método no habría sido efectivo).
+            tipos = (*(tipos or ("choice",) * len(dificultades))[:-1], "open")
+        repaso = path.module(plan.review_concept) if plan.review_concept else None
         peticion = LessonRequest(
             topic_label=path.title,
             concept=t.concept,
@@ -345,6 +376,13 @@ class TeachingService:
             variant=t.variant,
             check_difficulties=dificultades,
             check_kinds=tipos,
+            study_method=plan.method,
+            review_concept=plan.review_concept or "",
+            review_concept_title=((repaso.title if repaso else None) or plan.review_concept or "") if plan.review_concept else "",
+            review_position=plan.review_position,
+            why_guided=plan.why_guided,
+            explain_it=plan.explain_it,
+            worked_example=plan.worked_hidden is not None,
             # El nivel del tramo del módulo: un módulo avanzado se explica a nivel
             # avanzado aunque lo pida alguien que aún no lo es del todo (ADR-037).
             level=(modulo.tier if modulo and modulo.tier else None)
@@ -371,10 +409,67 @@ class TeachingService:
         markdown, _ = extract_diagrams(leccion.markdown)
         # La foto se busca una vez y queda en la explicación guardada: recargar no la repite.
         encontradas = {q: await self._images.find(q) for q in image_requests(markdown)} if self._images else {}
-        markdown, _ = place_images(markdown, encontradas)
+        markdown, _ = place_images(strip_foreign_images(markdown), encontradas)
         path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
+        path.teaching.study_method = plan.method
+        path.teaching.worked_steps = list(leccion.worked_steps) if plan.worked_hidden is not None else []
+        path.teaching.worked_hidden = plan.worked_hidden or 0
+        if plan.note:
+            path.teaching.reason = plan.note
         await self._paths.save(path)
         return LessonStep(path, quiz)
+
+    def _abiertas_activas(self) -> bool:
+        return getattr(self._quiz_service, "open_questions_enabled", False) is True
+
+    async def _guardar_elecciones(self, path: LearningPathAggregate, assessment, choices: dict | None) -> None:
+        """Lo que el alumno eligió en «Antes de empezar» se queda en la ruta (ADR-055).
+
+        Se guarda ya, aunque haya una comprobación pendiente: aplica al paso siguiente,
+        y una recarga no lo pierde.
+        """
+        cambios = dict(choices or {}) if self._study_methods_enabled else {}
+        if assessment is not None:
+            cambios["assessment"] = assessment
+        if not cambios:
+            return
+        metodo = cambios.get("study_method")
+        if metodo is not None:
+            disp = availability(
+                metodo, open_questions=self._abiertas_activas(), passed_concepts=len(path.teaching.passed_concepts)
+            )
+            if not disp.available:
+                raise StudyMethodUnavailable(disp.text or "Ese método no está disponible ahora.")
+        path.choose_study(**cambios)
+        await self._paths.save(path)
+
+    def _plan_del_metodo(self, path: LearningPathAggregate, perfil) -> MethodPlan:
+        """Qué cambia en este paso según el método efectivo (ADR-055, fase 4)."""
+        metodo, motivo = self._metodo_efectivo(path, perfil)
+        t = path.teaching
+        dominio = (
+            {c: m.effective_mastery() for c, m in perfil.mastery_by_concept.items() if m.informs_decision}
+            if perfil
+            else {}
+        )
+        plan = plan_for(
+            metodo,
+            current=t.concept,
+            passed=list(t.passed_concepts),
+            tier=path.current_tier,
+            understood_streak=t.understood_streak,
+            effective_mastery=dominio,
+        )
+        return replace(plan, note=plan.note or motivo) if (motivo and not plan.note) else plan
+
+    def _metodo_efectivo(self, path: LearningPathAggregate, perfil) -> tuple[str | None, str]:
+        """El método que se aplica al paso: el de la ruta, si no el de su preferencia (ADR-055)."""
+        if not self._study_methods_enabled:
+            return None, ""
+        elegido = path.study_method if path.study_method_set else (perfil.study_method_choice if perfil else None)
+        return effective_method(
+            elegido, open_questions=self._abiertas_activas(), passed_concepts=len(path.teaching.passed_concepts)
+        )
 
     async def class_session(self, user_id: UUID, path_id: UUID, concept: str | None = None) -> ClassSession:
         """Lo que el tutor sabe al responder una duda en esta clase (ADR-054). Solo lee.
@@ -497,8 +592,11 @@ class TeachingService:
         # Mismo camino que cualquier quiz: calificación en servidor, evento y
         # projector. La evidencia de la clase NO tiene un sistema propio.
         intento = await self._quiz_service.submit_attempt(quiz_id, user_id, answers)
-        correctas = sum(1 for q in intento.questions if q.is_correct)
-        resultado = outcome_from(correctas, len(intento.questions))
+        # La pregunta de repaso de otro concepto (fase 4) es evidencia de ESE concepto:
+        # no decide si se entendió el paso actual.
+        del_paso = [q for q in intento.questions if not getattr(q, "concept_title", None)] or intento.questions
+        correctas = sum(1 for q in del_paso if q.is_correct)
+        resultado = outcome_from(correctas, len(del_paso))
         path.record_check(resultado)
         perfil = await self._con_este_intento(perfil, user_id, quiz_id, intento)
         paso = self._policy.after_check(path, resultado, perfil)

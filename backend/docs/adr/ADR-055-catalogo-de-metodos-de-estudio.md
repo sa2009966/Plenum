@@ -1,6 +1,6 @@
 # ADR-055: Catálogo de métodos de estudio y ritmos
 
-- **Estado:** Propuesto (fase 2) · **Fecha:** 2026-10-20 · Lo revisa el frontend antes de la fase 3.
+- **Estado:** Aceptado. Fases 3 y 4 implementadas el 2026-10-21, detrás de `STUDY_METHODS_ENABLED`: elegir, guardar en la ruta y que el método cambie de verdad la lección. · **Fecha:** 2026-10-20
 - **Plan:** fase 2 de `5_PLAN_METODOS_Y_CLASE.md` · **Usa:** ADR-028 (clase), ADR-051 (memoria y
   agenda), ADR-053 (preguntas abiertas), ADR-054 (preguntar en clase), ADR-022 (estilo elegido),
   ADR-033 (tiempo de estudio), ADR-006 y ADR-015 (ofrecer, no imponer).
@@ -166,9 +166,14 @@ calificada (invariante: una duda no es una nota).
 - **Decir que un método es «mejor para ti»** sin datos de retención. La fase 7 lo medirá con los
   repasos calificados, y con ~50 usuarios solo de forma descriptiva.
 
-## Contrato propuesto para la fase 3 (lo revisa el frontend)
+## Contrato para las fases 3 y 4 (revisado por el frontend el 2026-10-21)
 
-`GET /learning/study-methods` (con `STUDY_METHODS_ENABLED` apagado: `404 study_methods_disabled`):
+El frontend aceptó la estructura y pidió siete cambios. Todos están incorporados.
+
+### Catálogo
+
+`GET /learning/study-methods[?path_id=]`. Con `STUDY_METHODS_ENABLED` apagado responde
+`404 {reason: "study_methods_disabled"}`.
 
 ```json
 {
@@ -179,7 +184,10 @@ calificada (invariante: una duda no es una nota).
       "summary": "Explicar el tema con tus palabras, como si se lo enseñaras a alguien.",
       "good_for": "Destapar lo que creías saber.",
       "available": false,
-      "unavailable_reason": "open_questions_disabled"
+      "unavailable_reason": "open_questions_disabled",
+      "unavailable_text": "Necesita las preguntas escritas, que aún no están activas.",
+      "recommended": false,
+      "recommended_text": null
     }
   ],
   "paces": [
@@ -192,19 +200,93 @@ calificada (invariante: una duda no es una nota).
 }
 ```
 
-- `GET/PUT /learning/me/preferences` añade `study_method` (clave o `null`), `study_pace` y
-  `study_methods_enabled`, con *merge* como los demás campos. Se guarda por evento
-  (`StudyMethodChosenEvent`) y lo escribe el projector (escritor único).
-- `POST /learning/paths/{id}/lesson` acepta `study_method` y `study_pace` «solo para esta clase»,
-  como `assessment`. Un método no disponible da `422 study_method_unavailable` con su `reason`.
-- `POST /learning/paths/{id}/skip-placement`: el alumno empieza sin pre-test. Solo vale con la ruta
-  en `assessment` (si no, `409`). Marca `placement_skipped` en la ruta y la pasa al primer paso del
-  tramo básico. La ruta devuelve `placement_skipped` para que el cliente siga ofreciendo el
-  pre-test. Fuera del interruptor de métodos: es parte del flujo base.
-- `teaching` devuelve `study_method` efectivo (el que se aplicó al paso), que puede diferir del
-  pedido si un requisito no se cumple (ver §2).
-- `available` se calcula **por ruta** cuando se pide con `?path_id=` (el intercalado depende de los
-  conceptos superados). Sin `path_id`, solo cuentan los interruptores.
+- **`unavailable_text`:** el motivo, en español y escrito por el backend, como el resto del
+  catálogo. El cliente no fija textos propios.
+- **`available`, `recommended` y `recommended_text`** se calculan **por ruta** cuando la petición
+  lleva `?path_id=`. Sin ella, solo cuentan los interruptores y nada sale recomendado.
+  - **Recomendación:** como mucho un método. Se basa en el **nivel**, no en un «estilo».
+  - **Ejemplos resueltos:** se recomiendan en el tramo básico, o cuando el concepto actual tiene
+    dominio **medido** por debajo de 0,5 (invariante 3: sin evidencia no se recomienda). **Nunca**
+    en el tramo avanzado, por la inversión por pericia.
+  - El cliente lo muestra como etiqueta y **no lo preselecciona**.
+
+### Elección: método y ritmo se guardan en la ruta
+
+- **Preferencias.** `GET/PUT /learning/me/preferences` añade `study_method` (una clave o `null`),
+  `study_pace` y `study_methods_enabled` (solo lectura), con *merge* como los demás campos.
+  - Se guardan por evento (`StudyMethodChosenEvent`) y los escribe el projector.
+  - Son **solo el valor por defecto de las rutas nuevas**.
+- **En la ruta.** `POST /learning/paths/{id}/lesson` acepta `study_method`, `study_pace` y
+  `assessment`, y **los guarda en la ruta**, no solo para esa petición. Así sobreviven a una recarga,
+  y la fase 6 sabe qué método lleva **esa** ruta.
+  - **Ausente** en el body = mantener lo que tiene la ruta. **`null`** = «que decida LARIA».
+  - `assessment` sigue la misma regla, que mejora el comportamiento del ADR-053: antes valía solo
+    para la petición.
+  - **Con una comprobación pendiente**, el cambio aplica **al paso siguiente**: `/lesson` devuelve la
+    misma comprobación hasta que se responda, como ya pasaba con `assessment`.
+  - Un método no disponible da `422 {reason: "study_method_unavailable"}`.
+- **El ritmo** no cambia la lección. El temporizador es del cliente, que guarda su estado. Se
+  guarda en la ruta **para analítica** (fases 5 y 7).
+- **La ruta devuelve** `study_method` y `study_pace` (lo elegido) y `teaching.study_method` (el
+  método efectivo del paso). Este puede diferir del elegido si un requisito no se cumple (ver §2).
+
+### Estructura de la lección por método (fase 4)
+
+Va en campos, no dentro del markdown, para que el cliente no tenga que adivinarla:
+
+- **Pregunta previa del recuerdo activo:** va en la comprobación con `position: "before"`. Las
+  demás llevan `position: "after"`, que es el valor por defecto. El cliente la muestra antes de la
+  explicación, y **se envía con el resto de la comprobación**, en un solo intento. Se califica como
+  un ítem más y cuenta como repaso (ADR-051).
+- **Pregunta de otro concepto** (la previa del recuerdo activo y la mezclada del intercalado):
+  lleva `concept_title` para mostrar «Repaso: Fracciones».
+- **Ejemplos resueltos:** `LessonResponse.worked_example: {steps: [{text, hidden}]}`. Los pasos con
+  `hidden: true` son huecos que el alumno completa y luego destapa.
+  - **No se califican ni dejan evidencia:** son práctica guiada. La evidencia calificada sigue
+    siendo la comprobación del paso (invariante 4).
+  - Si más adelante se quieren calificar, irían como preguntas abiertas, con su coste.
+
+### Pre-test y interruptor
+
+- `POST /learning/paths/{id}/skip-placement`: el alumno empieza sin pre-test.
+  - Solo vale con la ruta en `assessment`; si no, `409`.
+  - Marca `placement_skipped` en la ruta y la pasa al primer paso del tramo básico. La ruta devuelve
+    `placement_skipped` para que el cliente siga ofreciendo el pre-test.
+  - Está fuera del interruptor de métodos: es parte del flujo base.
+- El cliente decide si muestra la sección de métodos con `study_methods_enabled`; el 404 es solo el
+  respaldo.
+
+## Fase 4, verificada (2026-10-21)
+- **Dónde está cada parte:**
+  - **Qué hace cada método:** `src/domain/study_lesson.py` (puro), con `plan_for` y el desvanecimiento
+    `fade`.
+  - **Qué se le pide redactar al modelo:** `TutorPolicy._metodo_en_la_leccion` y
+    `_claves_del_metodo`.
+- **Recuerdo activo:** la pregunta previa va sobre el **último concepto superado**. Si es el primer
+  concepto, no hay pregunta previa.
+- **Intercalado:** pregunta sobre el concepto superado **más olvidado** según el modelo de memoria; si
+  no hay medición, el más antiguo. Con menos de dos superados, se comporta como recuerdo activo y lo
+  dice.
+- **Ejemplos resueltos:**
+  - el desvanecimiento es hacia atrás: se ocultan los últimos pasos, **uno más por cada acierto** en
+    el mismo concepto;
+  - el primer paso siempre se ve;
+  - en el tramo avanzado no se aplica, y la clase lo dice.
+- **La pregunta de repaso es evidencia de su concepto,** y por eso cuenta como repaso (ADR-051).
+  **No decide** si se entendió el paso actual: se excluye del resultado de la comprobación.
+- **Con el modelo real** (gpt-4o-mini, «Fracciones equivalentes»), los cinco métodos cumplen:
+  - recuerdo activo: la pregunta previa con `position: before`;
+  - intercalado: la pregunta de repaso al final;
+  - Explícalo tú: la última pregunta es abierta;
+  - el porqué: 3 de 3 con «¿Por qué» en la explicación y en la comprobación;
+  - ejemplos resueltos: de 5 a 6 pasos.
+- **Dos fallos encontrados al medir:**
+  - **La primera versión** daba las claves extra (`review_question`, `worked_example`) como
+    instrucción suelta y el modelo **las omitía**. Ahora van en la lista de claves del JSON, marcadas
+    como obligatorias.
+  - **Al barajar las opciones** (`quiz_quality`) se perdían `position` y `concept_title`, porque la
+    pregunta se reconstruía sin ellos. Ahora se usa `replace`.
+- **Tests:** `tests/api/test_metodos_en_la_clase_e2e.py` (12).
 
 ## Consecuencias
 - **A favor:** el catálogo se apoya en técnicas con evidencia y deja fuera lo que no la tiene. Elegir

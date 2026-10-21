@@ -135,6 +135,15 @@ class ClassQuestionAskedEvent(DomainEventBase):
 
 
 @dataclass(kw_only=True)
+class StudyMethodChosenEvent(DomainEventBase):
+    """Método y ritmo por defecto para sus rutas nuevas (ADR-055). Valores ya resueltos."""
+
+    student_id: UUID
+    study_method: str | None = None
+    study_pace: str | None = None
+
+
+@dataclass(kw_only=True)
 class AssessmentChosenEvent(DomainEventBase):
     """Cuántas abiertas y de opción múltiple quiere en sus evaluaciones (ADR-053)."""
 

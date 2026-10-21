@@ -12,6 +12,8 @@ class QuizQuestionPublicDTO:
     #: "choice" u "open" (ADR-053). Una abierta no trae opciones y sí `max_chars`.
     kind: str = "choice"
     max_chars: int | None = None
+    position: str = "after"
+    concept_title: str | None = None
 
 
 @dataclass
@@ -43,6 +45,8 @@ class AttemptQuestionResultDTO:
     feedback: str | None = None
     key_points: list[tuple[str, bool]] | None = None
     model_answer: str | None = None
+    #: Repaso de otro concepto (ADR-055, fase 4): no decide el paso actual.
+    concept_title: str | None = None
 
 
 @dataclass
