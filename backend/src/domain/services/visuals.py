@@ -137,8 +137,9 @@ IMAGE_INSTRUCTION = (
 )
 
 _MARCA_IMAGEN = re.compile(r"^[ \t]*\[\[imagen:[ \t]*([^\]\n]{2,80}?)[ \t]*\]\][ \t]*$", re.M | re.I)
-#: De aquí sale toda imagen que se entrega: lo demás no llega al navegador.
-_ORIGEN_IMAGENES = "https://upload.wikimedia.org/"
+#: De aquí sale toda imagen que se entrega: lo demás no llega al navegador. Las
+#: miniaturas vienen de `thumb.`; los originales, de `upload.` (medido contra la API).
+_ORIGENES_IMAGENES = ("https://upload.wikimedia.org/", "https://thumb.wikimedia.org/")
 _LICENCIAS_LIBRES = re.compile(r"^(cc0|cc[ -]by(?:[ -]sa)?(?:[ -]\d(?:\.\d)?)?|public domain|pd|dominio p[uú]blico)\b", re.I)
 _LICENCIAS_NO_LIBRES = re.compile(r"\b(nc|nd)\b|non-?commercial|no ?deriv|fair use", re.I)
 #: Umbrales de la moderación de imagen. Bajos a propósito: hay estudiantes menores.
@@ -196,7 +197,7 @@ def _markdown(img: LicensedImage) -> str:
 def place_images(content: str, found: dict[str, "LicensedImage | None"]) -> tuple[str, list[dict[str, str]]]:
     """Cambia cada marca por su foto con la atribución, o la quita. Pura.
 
-    Solo se entrega una imagen de Wikimedia (`upload.wikimedia.org`): aunque el
+    Solo se entrega una imagen de Wikimedia (`upload.` o `thumb.wikimedia.org`): aunque el
     buscador devolviera otra cosa, al navegador del estudiante no llega.
     """
     if not content or "[[" not in content:
@@ -205,7 +206,7 @@ def place_images(content: str, found: dict[str, "LicensedImage | None"]) -> tupl
 
     def _decide(m: re.Match) -> str:
         img = found.get(m.group(1).strip())
-        if img is None or not img.url.startswith(_ORIGEN_IMAGENES) or visuales:
+        if img is None or not img.url.startswith(_ORIGENES_IMAGENES) or visuales:
             return ""
         visuales.append(img.to_dict())
         return _markdown(img)

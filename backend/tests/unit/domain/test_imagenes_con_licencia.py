@@ -51,6 +51,15 @@ def test_sin_imagen_la_marca_se_quita_sin_dejar_huecos():
     assert visuales == []
 
 
+def test_las_miniaturas_de_wikimedia_llegan():
+    """Medido contra la API real: las miniaturas vienen de thumb.wikimedia.org."""
+    mini = LicensedImage(**{**VOLCAN.__dict__, "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/V.jpg/800px-V.jpg"})
+
+    _, visuales = place_images(TEXTO, {"volcán": mini})
+
+    assert visuales and visuales[0]["url"] == mini.url
+
+
 def test_una_url_que_no_es_de_wikimedia_no_llega():
     falsa = LicensedImage(**{**VOLCAN.__dict__, "url": "https://evil.example/x.jpg"})
 

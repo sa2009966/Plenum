@@ -72,7 +72,8 @@
   aparte `[[imagen: objeto]]`, solo para **objetos reales** (animales, órganos, lugares,
   monumentos, instrumentos, máquinas). Una como mucho.
 - **El servidor busca** en Wikimedia Commons (`WikimediaImageFinder`) y solo acepta:
-  - JPEG, PNG o WebP de `upload.wikimedia.org`;
+  - JPEG, PNG o WebP de `upload.wikimedia.org` o `thumb.wikimedia.org` (de ahí vienen las
+    miniaturas, medido contra la API);
   - licencias **libres**: CC0, CC BY, CC BY-SA o dominio público. Nada NC ni ND;
   - fotos que pasen la **moderación de imagen** (`omni-moderation`) con umbrales bajos, porque hay
     estudiantes menores y Commons no filtra por edad. Si la moderación no responde, **no hay
@@ -89,8 +90,11 @@
   `tests/unit/infrastructure/test_wikimedia_image_finder.py`,
   `tests/unit/application/test_imagenes_en_el_chat_y_la_clase.py` y dos en
   `tests/api/test_esquemas_en_la_clase.py`.
-- **Sin probar con el modelo real ni contra la API de Wikimedia en vivo** (no había clave en el
-  entorno de desarrollo): es lo primero antes de encender el interruptor.
+- **Probado contra la API real de Wikimedia** (sin moderación, que necesita clave): «volcán»,
+  «ojo humano», «Torre Eiffel», «mitocondria» y «guitarra» devolvieron foto libre con autor y
+  licencia. Destapó que las miniaturas vienen de `thumb.wikimedia.org`, que el filtro de origen
+  rechazaba. **Falta probar con el modelo real y con la moderación** antes de encender el
+  interruptor.
 
 ## Pendiente
 - **Fase 3:** imágenes generadas solo para analogías, fuera del streaming, con caché en R2 y un
