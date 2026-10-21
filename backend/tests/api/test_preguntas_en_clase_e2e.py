@@ -265,3 +265,19 @@ async def test_una_prueba_de_paso_sin_responder_tampoco_se_resuelve():
     sesion = await servicio.class_session(yo, ruta.id)
     assert "¿Qué imprime este bucle?" in sesion.pending_check
     assert not hasattr(sesion, "correct_answer")
+
+
+def test_una_pregunta_de_otro_tema_se_marca_y_vuelve_a_la_clase(entorno):
+    """Desvíos del tema: el servidor lo detecta y el cliente puede ofrecer volver."""
+    c, gate = entorno
+    h = _auth(c)
+    ruta, _ = _clase(c, h)
+    chat = c.get(f"/api/v1/learning/paths/{ruta['id']}/chat", headers=h).json()
+
+    r = _preguntar(c, h, chat["id"], "¿Quién ganó el mundial de fútbol de 2022 en Catar?")
+    assert gate.llamadas[-1]["learner"].class_session.off_topic is True
+    assert '"off_topic": true' in r.text
+
+    r = _preguntar(c, h, chat["id"], "no entiendo nada de esto, estoy perdido")
+    assert gate.llamadas[-1]["learner"].class_session.off_topic is False
+    assert '"off_topic"' not in r.text

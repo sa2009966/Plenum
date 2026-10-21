@@ -87,8 +87,11 @@
   - la prueba de paso protegida.
 
 ## Limitaciones
-- **Pregunta de otro tema:** se pide responderla en una frase y volver a la clase, pero gpt-4o-mini a
-  veces la responde entera y ofrece profundizar. No filtra nada; solo distrae.
+- **Pregunta de otro tema:** se pedía responderla en una frase y volver a la clase, pero gpt-4o-mini
+  a veces la respondía entera y ofrecía profundizar. **Resuelto (2026-10-21):** el servidor detecta
+  el desvío (`fuera_de_tema`, conservador: tres palabras con contenido sin ninguna de la clase y sin
+  mostrar confusión), le da una instrucción propia al final del prompt, limita la respuesta a 120
+  tokens y marca el sobre con `off_topic: true` para que el cliente ofrezca volver a la clase.
 - **La protección es por instrucción.** Las respuestas no están en el prompt, pero el modelo podría
   **calcular** una pregunta que se puede resolver solo con el enunciado si se lo saltara. En las
   pruebas no ocurrió.

@@ -356,6 +356,14 @@ def _en_clase(sesion) -> str:
             "números ni con sus datos. Explícale el concepto que hay detrás con un ejemplo "
             "DISTINTO, con otros números, y guíale con una pregunta para que llegue él."
         )
+    if sesion.off_topic:
+        # Al final, para que sea lo último que lea: solo con «responde en UNA frase»
+        # gpt-4o-mini a veces desarrollaba el otro tema entero.
+        partes.append(
+            " ESTA PREGUNTA NO es de la clase. Contéstala en dos frases como máximo, sin "
+            "listas, sin ejemplos y sin ofrecer profundizar. Termina invitando a volver a "
+            f"«{sesion.concept_title}» y di que ese tema lo podéis ver en el chat al terminar."
+        )
     return "".join(partes)
 
 @dataclass(frozen=True)

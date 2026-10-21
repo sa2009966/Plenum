@@ -13,6 +13,7 @@ from src.domain.ports.repositories import (
     DocumentRepository,
     StudentProfileRepository,
 )
+from src.domain.class_session import fuera_de_tema
 from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.services.adaptive_policy import AdaptationParameters
 from src.domain.catalog.voices import persona_for
@@ -110,6 +111,9 @@ _OFERTAS_FUERA_DE_CLASE = ("suggest_placement", "offer_quiz", "ask_learning_styl
 def _en_clase(extra: dict, sesion) -> dict:
     limpio = {k: v for k, v in extra.items() if k not in _OFERTAS_FUERA_DE_CLASE}
     limpio.update({"in_class": True, "concept_title": sesion.concept_title})
+    if sesion.off_topic:
+        # La pregunta era de otro tema: el cliente puede ofrecer volver a la clase.
+        limpio["off_topic"] = True
     return limpio
 
 
@@ -411,6 +415,7 @@ class ChatTutorService:
             raise ValueError("LLM gate no configurado para chats libres")
         learner = await self._learner(profile, intention, question, eleccion)
         if class_session is not None:
+            class_session = replace(class_session, off_topic=fuera_de_tema(question, class_session))
             learner = replace(learner or LearnerContext(), class_session=class_session)
             await self._senal_en_clase(student_id, class_session, question)
         pedido = dict(
@@ -526,6 +531,7 @@ class ChatTutorService:
         learner = await self._learner(profile, intention, question, eleccion)
         if class_session is not None:
             # La duda se responde en la clase, sobre su paso (ADR-054).
+            class_session = replace(class_session, off_topic=fuera_de_tema(question, class_session))
             learner = replace(learner or LearnerContext(), class_session=class_session)
             await self._senal_en_clase(student_id, class_session, question)
         extra = _nivel_conocido({**extra, **_estilo_elegido(eleccion)}, learner)
