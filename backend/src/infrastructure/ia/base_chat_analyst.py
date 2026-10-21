@@ -582,28 +582,46 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             client = await self._get_client()
             started = time.monotonic()
             token_count = 0
-            async with client.stream(
-                "POST", self.api_url, headers=self._headers, json=payload
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data = line[len("data:"):].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta") or {}
-                    content = delta.get("content")
-                    if content:
-                        token_count += 1
-                        yield content
+            for espera in (*_ESPERAS_REINTENTO_S, None):
+                try:
+                    async with client.stream(
+                        "POST", self.api_url, headers=self._headers, json=payload
+                    ) as response:
+                        try:
+                            response.raise_for_status()
+                        except httpx.HTTPStatusError:
+                            # Sin leer el cuerpo, el log no podría decir el tipo de error.
+                            await response.aread()
+                            raise
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data:"):
+                                continue
+                            data = line[len("data:"):].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta") or {}
+                            content = delta.get("content")
+                            if content:
+                                token_count += 1
+                                yield content
+                    break
+                except httpx.HTTPError as exc:
+                    # Como en `_chat`, pero solo antes del primer trozo: lo que el
+                    # estudiante ya está leyendo no se puede retirar.
+                    if token_count or espera is None or not _es_pasajero(exc):
+                        raise
+                    logger.warning(
+                        "llm_reintento task=ask model=%s %s espera=%.0fs",
+                        use_model, _describir_fallo(exc), espera,
+                    )
+                    await asyncio.sleep(espera)
             if self._metrics:
                 elapsed_ms = (time.monotonic() - started) * 1000.0
                 self._metrics.observe("laria_llm_latency_ms", elapsed_ms, model=use_model)
@@ -614,7 +632,9 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
             if self._metrics:
                 self._metrics.incr("laria_llm_calls", task="ask", model=use_model, outcome="error")
-            raise IAAnalysisError(_MSG_PROVEEDOR) from exc
+            logger.error("llm_fallo task=ask model=%s %s", use_model, _describir_fallo(exc))
+            saturado = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+            raise IAAnalysisError(_MSG_SATURADO if saturado else _MSG_PROVEEDOR) from exc
 
     async def generate_quiz(
         self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None
@@ -673,11 +693,14 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
                 if q.get("kind") == "open" or (q.get("key_points") and not q.get("options")):
                     questions.append(_abierta(q, q.get("difficulty", "medium"), tuple(str(t) for t in tags)))
                     continue
+                # Opciones y letra siempre como texto: capturado con el modelo real,
+                # un ítem de ecuaciones llegó con {"A": 4, "B": 3…} y la nivelación
+                # respondía 500 al serializarlo.
                 questions.append(
                     QuizQuestion(
-                        text=q["text"],
-                        options=q["options"],
-                        correct_answer=q["correct_answer"],
+                        text=str(q["text"]),
+                        options={str(k).strip().upper(): str(v).strip() for k, v in dict(q["options"]).items()},
+                        correct_answer=str(q["correct_answer"]).strip().upper(),
                         difficulty=q.get("difficulty", "medium"),
                         concept_tags=tuple(str(t) for t in tags),
                     )

@@ -24,6 +24,7 @@ from src.domain.events.domain_events import (
     StudyGoalsChosenEvent,
     VoiceChosenEvent,
     AssessmentChosenEvent,
+    ClassQuestionAskedEvent,
     QuizAttemptCompletedEvent,
     TutorQuestionAskedEvent,
 )
@@ -41,6 +42,7 @@ _SUPPORTED = frozenset(
         "VoiceChosenEvent",
         "StudyGoalsChosenEvent",
         "AssessmentChosenEvent",
+        "ClassQuestionAskedEvent",
     }
 )
 
@@ -112,6 +114,17 @@ def _serialize(event: DomainEvent) -> dict[str, Any]:
             "student_id": str(event.student_id),
             "session_minutes": event.session_minutes,
             "daily_goal_minutes": event.daily_goal_minutes,
+        }
+    if isinstance(event, ClassQuestionAskedEvent):
+        return {
+            "event_type": event.event_type,
+            "event_id": str(event.event_id),
+            "aggregate_id": str(event.aggregate_id),
+            "timestamp": event.timestamp.isoformat(),
+            "student_id": str(event.student_id),
+            "concept": event.concept,
+            "signal_kind": event.signal_kind,
+            "signal_strength": event.signal_strength,
         }
     if isinstance(event, AssessmentChosenEvent):
         return {
@@ -209,6 +222,15 @@ def _deserialize(doc: dict[str, Any]) -> DomainEvent | None:
             student_id=UUID(payload["student_id"]),
             session_minutes=payload.get("session_minutes"),
             daily_goal_minutes=payload.get("daily_goal_minutes"),
+        )
+    if et == "ClassQuestionAskedEvent":
+        return ClassQuestionAskedEvent(
+            event_id=event_id,
+            aggregate_id=UUID(payload["aggregate_id"]),
+            student_id=UUID(payload["student_id"]),
+            concept=str(payload["concept"]),
+            signal_kind=str(payload["signal_kind"]),
+            signal_strength=float(payload.get("signal_strength", 0.5)),
         )
     if et == "AssessmentChosenEvent":
         return AssessmentChosenEvent(

@@ -91,8 +91,8 @@
     agregado, intentos anteriores, parseo, outbox y Mongo.
 
 ## Limitaciones
-- **El número de preguntas de la nivelación (4) es una propuesta.** Está pendiente de confirmar por
-  el usuario (`PLACEMENT_OPEN_ITEMS`).
+- **El número de preguntas de la nivelación (4)** lo confirmó el usuario el 20-oct-2026
+  (`PLACEMENT_OPEN_ITEMS`).
 - **La calidad de las ideas clave depende del modelo.** En la prueba real salieron ideas poco
   esenciales que el corrector exige: «tienen numeradores y denominadores diferentes», o «ocurre en
   las hojas» al preguntar por el proceso de la fotosíntesis. Así, una buena respuesta queda en

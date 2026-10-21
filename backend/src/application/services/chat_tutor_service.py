@@ -42,6 +42,12 @@ from src.domain.services.response_envelope import (
 from src.domain.ports.embodiment import AffectState
 
 
+from dataclasses import replace
+
+from src.domain.events.domain_events import ClassQuestionAskedEvent
+from src.domain.services.learner_context import LearnerContext
+from src.domain.services.learning_signal_detector import LearningSignalDetector, LearningSignalKind
+
 logger = logging.getLogger("laria.tutor")
 
 
@@ -94,6 +100,17 @@ def _intent_payload(intention) -> dict:
     if intention.ask_learning_style:
         carga["ask_learning_style"] = True
     return carga
+
+
+#: Ofertas que no tienen sentido dentro de una clase: otra nivelación, otro
+#: cuestionario, la tarjeta de estilos (ADR-054).
+_OFERTAS_FUERA_DE_CLASE = ("suggest_placement", "offer_quiz", "ask_learning_style", "topic_hint")
+
+
+def _en_clase(extra: dict, sesion) -> dict:
+    limpio = {k: v for k, v in extra.items() if k not in _OFERTAS_FUERA_DE_CLASE}
+    limpio.update({"in_class": True, "concept_title": sesion.concept_title})
+    return limpio
 
 
 def _is_remediation(decision: Optional[PedagogicalDecision]) -> bool:
@@ -199,7 +216,10 @@ class ChatTutorService:
         topic_catalog: Optional[TopicCatalog] = None,
         preferences: Optional[LearningPreferencesService] = None,
         safety: Optional[ContentSafetyService] = None,
+        event_bus=None,
     ) -> None:
+        #: Para dejar como señal débil una duda hecha en clase (ADR-054).
+        self._bus = event_bus
         self._analyze_service = analyze_service
         self._llm_gate = llm_gate
         self._doc_repo = document_repository
@@ -209,6 +229,28 @@ class ChatTutorService:
         self._safety = safety
         self._affect = AffectPolicy()
         self._intent = IntentDetector()
+
+    async def _senal_en_clase(self, student_id: UUID, sesion, question: str) -> None:
+        """Una duda en clase que muestra dificultad deja una señal DÉBIL sobre el paso.
+
+        Preguntar «¿por qué…?» es estudiar bien, no fallar: solo cuenta si la pregunta
+        muestra confusión o pide ayuda, y aun así como auto-reporte, nunca como nota
+        (invariante 4). Es la señal que usará el cambio de método (plan, fase 5).
+        """
+        if self._bus is None or not sesion.concept:
+            return
+        senal = LearningSignalDetector().detect(question)
+        if senal.kind == LearningSignalKind.NONE:
+            return
+        await self._bus.publish(
+            ClassQuestionAskedEvent(
+                aggregate_id=student_id,
+                student_id=student_id,
+                concept=sesion.concept,
+                signal_kind=senal.kind.value,
+                signal_strength=float(senal.strength or 0.5),
+            )
+        )
 
     async def _eleccion_de_estilo(
         self, intention, question: str, history: tuple, student_id: UUID
@@ -302,6 +344,7 @@ class ChatTutorService:
         question: str,
         student_id: UUID,
         history: tuple = (),
+        class_session=None,
     ) -> TutorResponse:
         """Devuelve la respuesta del tutor con su envelope de UI.
 
@@ -367,13 +410,17 @@ class ChatTutorService:
         if self._llm_gate is None:
             raise ValueError("LLM gate no configurado para chats libres")
         learner = await self._learner(profile, intention, question, eleccion)
+        if class_session is not None:
+            learner = replace(learner or LearnerContext(), class_session=class_session)
+            await self._senal_en_clase(student_id, class_session, question)
         pedido = dict(
             context="",
             question=question,
             decision=None,
-            learning_topic=_tema_a_ofrecer(intention),
+            # En clase no se ofrece otra nivelación ni otro cuestionario (ADR-054).
+            learning_topic=None if class_session else _tema_a_ofrecer(intention),
             history=history,
-            quiz_request=_cuestionario_pedido(intention),
+            quiz_request=None if class_session else _cuestionario_pedido(intention),
         )
         content = await self._llm_gate.answer_question(**pedido, learner=learner)
         if repeats_recent(content, history):
@@ -388,6 +435,8 @@ class ChatTutorService:
             {**_intent_payload(intention), "grounded": False, **_estilo_elegido(eleccion)},
             learner,
         )
+        if class_session is not None:
+            extra = _en_clase(extra, class_session)
         content = _con_esquemas(content, extra)
         envelope = ResponseEnvelope.from_decision(
             None,
@@ -404,6 +453,7 @@ class ChatTutorService:
         question: str,
         student_id: UUID,
         history: tuple = (),
+        class_session=None,
     ):
         """Streaming de la respuesta del tutor (yield de trozos).
 
@@ -474,15 +524,21 @@ class ChatTutorService:
             return
 
         learner = await self._learner(profile, intention, question, eleccion)
+        if class_session is not None:
+            # La duda se responde en la clase, sobre su paso (ADR-054).
+            learner = replace(learner or LearnerContext(), class_session=class_session)
+            await self._senal_en_clase(student_id, class_session, question)
         extra = _nivel_conocido({**extra, **_estilo_elegido(eleccion)}, learner)
+        if class_session is not None:
+            extra = _en_clase(extra, class_session)
         content = ""
         async for token in self._llm_gate.answer_question_stream(
             context="",
             question=question,
             decision=None,
-            learning_topic=_tema_a_ofrecer(intention),
+            learning_topic=None if class_session else _tema_a_ofrecer(intention),
             history=history,
-            quiz_request=_cuestionario_pedido(intention),
+            quiz_request=None if class_session else _cuestionario_pedido(intention),
             learner=learner,
         ):
             content += token

@@ -65,9 +65,16 @@ async def test_ensure_all_indexes_creates_schema_indexes():
     # El tercero sostiene la reclamación atómica del worker (processed_at +
     # claimed_at + created_at).
     assert db.event_outbox.create_index.await_count == 3
-    assert db.chats.create_index.await_count == 2
+    # El tercero: un chat por clase y alumno, único (ADR-054).
+    assert db.chats.create_index.await_count == 3
     db.chats.create_index.assert_any_await("owner_id")
     db.chats.create_index.assert_any_await("updated_at")
+    db.chats.create_index.assert_any_await(
+        [("owner_id", 1), ("path_id", 1)],
+        unique=True,
+        partialFilterExpression={"path_id": {"$type": "string"}},
+        name="chat_por_clase",
+    )
     assert db.learning_paths.create_index.await_count == 1
     db.learning_paths.create_index.assert_any_await("owner_id")
     assert db.concept_graphs.create_index.await_count == 1

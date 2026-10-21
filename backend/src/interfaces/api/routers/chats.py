@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json
+import logging
 
 from src.application.services.conversation_memory import ConversationMemory
 from src.application.services.chat_tutor_service import ChatTutorService
@@ -12,6 +13,7 @@ from src.domain.aggregates.chat import ChatAggregate
 from src.domain.ports.chat_title_generator import ChatTitleGenerator, TitleMessage
 from src.domain.ports.ia_analyst import IAAnalysisError
 from src.domain.ports.repositories import ChatRepository
+from src.interfaces.api.errors import ReasonedError
 from src.interfaces.api.dependencies import (
     get_chat_repo,
     get_chat_title_generator,
@@ -19,6 +21,7 @@ from src.interfaces.api.dependencies import (
     get_chat_tutor_service,
     get_current_user_id,
     get_quiz_service,
+    get_teaching_service,
 )
 from src.interfaces.api.openapi_responses import (
     RESP_401_UNAUTHORIZED,
@@ -41,6 +44,8 @@ from src.interfaces.schemas.chat_schemas import (
     TitleResponse,
 )
 
+logger = logging.getLogger("laria.chat")
+
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
 _MSG_NO_ENCONTRADO = "Recurso no encontrado"
@@ -51,6 +56,7 @@ def _map_chat(chat: ChatAggregate) -> ChatResponse:
         id=str(chat.id),
         title=chat.title,
         document_id=str(chat.document_id) if chat.document_id else None,
+        path_id=str(chat.path_id) if chat.path_id else None,
         messages=[
             ChatMessageResponse(
                 id=str(m.id),
@@ -74,6 +80,7 @@ def _map_summary(chat: ChatAggregate) -> ChatSummary:
         id=str(chat.id),
         title=chat.title,
         document_id=str(chat.document_id) if chat.document_id else None,
+        path_id=str(chat.path_id) if chat.path_id else None,
         message_count=len(chat.messages),
         last_message_preview=last_preview,
         created_at=chat.created_at,
@@ -162,9 +169,31 @@ async def update_chat(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
     if body.document_id is not None:
+        if chat.path_id is not None:
+            # El contexto de un chat de clase es la clase; un documento lo cambiaría (ADR-054).
+            raise ReasonedError(422, "Un chat de clase no admite documentos.", "class_chat_no_documents")
         chat.link_document(body.document_id)
     await repo.save(chat)
     return _map_chat(chat)
+
+
+async def _sesion_de_clase(chat: ChatAggregate, usuario: UUID, concept: str | None, teaching):
+    """El contexto de la clase de un chat vinculado a una ruta (ADR-054), o None.
+
+    Con el interruptor apagado, o si la ruta ya no existe, el chat responde como
+    uno normal. Un `concept` que no es de la ruta es un error del cliente: 422.
+    """
+    from src.application.services.teaching_service import ConceptNotInPath, PathNotFound
+    from src.infrastructure.config import settings
+
+    if chat.path_id is None or not settings.CLASS_QUESTIONS_ENABLED:
+        return None
+    try:
+        return await teaching.class_session(usuario, chat.path_id, concept)
+    except PathNotFound:
+        return None
+    except ConceptNotInPath:
+        raise ReasonedError(422, "Ese paso no es de esta clase.", "concept_not_in_path")
 
 
 @router.post("/{chat_id}/messages", response_model=ChatResponse, summary="Agregar mensaje")
@@ -175,10 +204,12 @@ async def add_message(
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     tutor: Annotated[ChatTutorService, Depends(get_chat_tutor_service)],
     memory: Annotated[ConversationMemory, Depends(get_conversation_memory)],
+    teaching=Depends(get_teaching_service),
 ):
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    sesion = await _sesion_de_clase(chat, UUID(current_user_id), body.concept, teaching) if body.role == "user" else None
     # Antes de añadir el mensaje actual: el historial es lo que se dijo ANTES.
     # Solo un turno la necesita: una nota `system` no gasta un resumen.
     historial = await memory.recall(chat) if body.role == "user" else ()
@@ -194,6 +225,8 @@ async def add_message(
                 question=body.content,
                 student_id=UUID(current_user_id),
                 history=historial,
+                # Solo en un chat de clase: el de siempre llama al tutor igual que antes.
+                **({"class_session": sesion} if sesion is not None else {}),
             )
             chat.add_message(
                 role="assistant",
@@ -231,6 +264,7 @@ async def stream_message(
     repo: Annotated[ChatRepository, Depends(get_chat_repo)],
     tutor: Annotated[ChatTutorService, Depends(get_chat_tutor_service)],
     memory: Annotated[ConversationMemory, Depends(get_conversation_memory)],
+    teaching=Depends(get_teaching_service),
 ):
     if body.role != "user":
         raise HTTPException(status_code=422, detail="El streaming solo acepta mensajes 'user'")
@@ -238,6 +272,8 @@ async def stream_message(
     chat = await repo.find_by_id(chat_id)
     if chat is None or str(chat.owner_id) != current_user_id:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    # Antes de abrir el stream: un concepto inválido tiene que poder ser un 422.
+    sesion = await _sesion_de_clase(chat, UUID(current_user_id), body.concept, teaching)
     historial = await memory.recall(chat)
     try:
         chat.add_message(role="user", content=body.content, metadata=body.metadata)
@@ -261,6 +297,7 @@ async def stream_message(
                 question=question,
                 student_id=UUID(current_user_id),
                 history=historial,
+                **({"class_session": sesion} if sesion is not None else {}),
             ):
                 if env is not None:
                     envelope = env
@@ -285,12 +322,17 @@ async def stream_message(
             if envelope is not None:
                 yield _sse("envelope", envelope.to_dict())
             yield _sse("done", {"message_id": str(chat.messages[-1].id)})
-        except Exception:
+        except Exception as exc:
+            # Antes no quedaba rastro: el estudiante veía el error y en Render no
+            # había forma de saber si fue el proveedor, un timeout o un fallo nuestro.
+            logger.exception("chat_stream_fallo chat=%s %s", chat_id, type(exc).__name__)
             yield _sse(
                 "error",
                 plain_envelope(
                     "error",
-                    "No pude generar la respuesta. Intenta de nuevo.",
+                    # Los mensajes del proveedor ya están escritos para el estudiante
+                    # (p. ej. «espera unos segundos»); lo demás no se le enseña.
+                    str(exc) if isinstance(exc, IAAnalysisError) else "No pude generar la respuesta. Intenta de nuevo.",
                     grounded=chat.document_id is not None,
                 ).to_dict(),
             )

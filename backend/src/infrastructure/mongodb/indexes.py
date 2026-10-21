@@ -38,6 +38,14 @@ async def ensure_all_indexes(database: AsyncIOMotorDatabase | None = None) -> No
     )
     await db.chats.create_index("owner_id")
     await db.chats.create_index("updated_at")
+    # Un chat por clase y alumno (ADR-054): la garantía contra dos peticiones a la
+    # vez está aquí, no en el cliente. Solo cuenta para los chats con ruta.
+    await db.chats.create_index(
+        [("owner_id", 1), ("path_id", 1)],
+        unique=True,
+        partialFilterExpression={"path_id": {"$type": "string"}},
+        name="chat_por_clase",
+    )
     await db.learning_paths.create_index("owner_id")
     # El grafo se busca por _id (graph_id); el índice sirve a la vista de
     # curación, que lista grafos por recencia de edición.

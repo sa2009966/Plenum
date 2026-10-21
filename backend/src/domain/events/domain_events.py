@@ -125,6 +125,16 @@ class VoiceChosenEvent(DomainEventBase):
 
 
 @dataclass(kw_only=True)
+class ClassQuestionAskedEvent(DomainEventBase):
+    """Una duda en clase que muestra dificultad (ADR-054). Señal débil, nunca nota."""
+
+    student_id: UUID
+    concept: str
+    signal_kind: str
+    signal_strength: float = 0.5
+
+
+@dataclass(kw_only=True)
 class AssessmentChosenEvent(DomainEventBase):
     """Cuántas abiertas y de opción múltiple quiere en sus evaluaciones (ADR-053)."""
 

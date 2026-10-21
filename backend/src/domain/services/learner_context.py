@@ -15,6 +15,11 @@ from src.domain.services.cognitive_style import CognitiveStyle
 MAX_LEVELS_IN_PROMPT = 5
 
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from src.domain.class_session import ClassSession
+
 @dataclass(frozen=True)
 class LearnerContext:
     style: CognitiveStyle | None = None
@@ -30,11 +35,13 @@ class LearnerContext:
     persona: str | None = None
     #: Respuesta que salió casi igual a una anterior y se está regenerando (ADR-040).
     avoid_reply: str = ""
+    #: La clase en la que pregunta, si pregunta desde una (ADR-054).
+    class_session: "ClassSession | None" = None
 
     def __bool__(self) -> bool:
         return bool(
             self.style or self.topic_level or self.levels or self.ask_style or self.style_just_chosen
-            or self.persona or self.avoid_reply
+            or self.persona or self.avoid_reply or self.class_session
         )
 
 

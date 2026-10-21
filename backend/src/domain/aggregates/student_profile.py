@@ -655,6 +655,27 @@ class StudentProfile:
             ),
         )
 
+    def record_class_question(self, concept: str, signal_kind: str, strength: float = 0.5) -> None:
+        """Una duda con dificultad hecha en clase (ADR-054): auto-reporte, evidencia débil.
+
+        Igual que una duda del chat sobre material (`record_ask_struggle`), pero sin
+        documento: la clase va por concepto. No escribe `frequent_errors`: pedir
+        ayuda con X no es fallar X (ADR-007).
+        """
+        fuerza = max(0.0, min(1.0, float(strength)))
+        tipo = EvidenceKind.HELP_REQUEST if signal_kind == "help" else EvidenceKind.ASK_STRUGGLE
+        self.record_concept_evidence(
+            concept,
+            EvidenceSample(
+                kind=tipo,
+                score_ratio=max(0.1, 1.0 - fuerza),
+                weight=0.6 + 0.4 * fuerza,
+                help_level=0.5 if tipo == EvidenceKind.HELP_REQUEST else 0.0,
+                is_weak=True,
+            ),
+        )
+        self.total_struggle_signals += 1
+
     def record_concept_evidence(self, concept: str, sample: EvidenceSample) -> None:
         """Evidencia de un concepto suelto: una muestra, una observación."""
         delta = self._apply_concept_evidence(concept, sample)
