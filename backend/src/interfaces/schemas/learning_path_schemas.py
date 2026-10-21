@@ -62,6 +62,8 @@ class TeachingStateResponse(BaseModel):
     passed_concepts: list[str] = []
     #: Por qué la clase está aquí, en una frase para mostrar.
     reason: str = ""
+    #: Método aplicado al paso (ADR-055); None = «que decida LARIA».
+    study_method: Optional[str] = None
 
 
 class LearningPathResponse(BaseModel):
@@ -83,6 +85,9 @@ class LearningPathResponse(BaseModel):
     next_tier: Optional[Literal["intermedio", "avanzado"]] = None
     #: Empezó sin pre-test (ADR-055): el cliente le sigue ofreciendo hacerlo.
     placement_skipped: bool = False
+    #: Elegido para esta ruta (ADR-055); null = «que decida LARIA» o sin elegir.
+    study_method: Optional[str] = None
+    study_pace: Optional[str] = None
 
 
 class LearningPathListResponse(BaseModel):

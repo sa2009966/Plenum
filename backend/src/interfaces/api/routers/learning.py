@@ -7,6 +7,7 @@ from src.application.services.learning_preferences_service import LearningPrefer
 from src.application.services.learning_query_service import LearningQueryService
 from src.application.services.study_time_service import StudyTimeService
 from src.application.services.teaching_service import (
+    StudyMethodUnavailable,
     AssessmentRequired,
     NoPendingCheck,
     PassageTestNotAvailable,
@@ -75,6 +76,7 @@ from src.interfaces.schemas.quiz_schemas import (
     AssessmentConfig,
     AssessmentOverride,
     LearningPreferences,
+    LessonOptions,
     LearningRecommendationItem,
     PedagogicalMemoryItem,
     QuizAttemptSummaryItem,
@@ -243,6 +245,7 @@ def _map_teaching(p: LearningPathAggregate) -> TeachingStateResponse | None:
         last_outcome=t.last_outcome.value if t.last_outcome else None,
         passed_concepts=list(t.passed_concepts),
         reason=t.reason,
+        study_method=t.study_method,
     )
 
 
@@ -270,7 +273,16 @@ async def get_my_preferences(
         assessment=_config(await service.assessment(yo)),
         open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
         class_questions_enabled=settings.CLASS_QUESTIONS_ENABLED,
+        **_estudio(*(await service.study(yo))),
     )
+
+
+def _estudio(metodo, ritmo) -> dict:
+    return {
+        "study_method": metodo,
+        "study_pace": ritmo,
+        "study_methods_enabled": settings.STUDY_METHODS_ENABLED,
+    }
 
 
 @router.put(
@@ -298,11 +310,17 @@ async def put_my_preferences(
         )
     else:
         mezcla = await service.assessment(yo)
+    cambios = {k: getattr(body, k) for k in ("study_method", "study_pace") if k in body.model_fields_set}
+    if cambios:
+        metodo, ritmo = await service.choose_study(yo, **cambios)
+    else:
+        metodo, ritmo = await service.study(yo)
     return LearningPreferences(
         explanation_style=estilo,
         assessment=_config(mezcla),
         open_questions_enabled=settings.OPEN_QUESTIONS_ENABLED,
         class_questions_enabled=settings.CLASS_QUESTIONS_ENABLED,
+        **_estudio(metodo, ritmo),
     )
 
 
@@ -356,6 +374,8 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
         tiers=list(p.tiers),
         next_tier=p.next_tier,
         placement_skipped=p.placement_skipped,
+        study_method=p.study_method,
+        study_pace=p.study_pace,
     )
 
 
@@ -538,13 +558,15 @@ async def lesson(
     path_id: UUID,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     service: Annotated[TeachingService, Depends(get_teaching_service)],
-    body: Optional[AssessmentOverride] = None,
+    body: Optional[LessonOptions] = None,
 ):
     usuario = UUID(current_user_id)
     try:
-        paso = await service.lesson(usuario, path_id, _mezcla(body))
+        paso = await service.lesson(usuario, path_id, _mezcla(body), body.choices() if body else None)
     except PathNotFound:
         raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except StudyMethodUnavailable as exc:
+        raise ReasonedError(422, exc.text, "study_method_unavailable")
     except UnsafeTopicError:
         # Ruta creada antes del filtro de temas (ADR-036): no se dan más clases.
         raise
@@ -850,3 +872,61 @@ async def next_topics(
             for s in sugerencias
         ]
     )
+
+
+# --- Métodos de estudio (ADR-055) ------------------------------------------------------
+
+
+@router.get(
+    "/study-methods",
+    summary="Catálogo de métodos de estudio y ritmos",
+    description=(
+        "Los cinco métodos y tres ritmos (ADR-055), con textos escritos por el backend. Con "
+        "`?path_id=`, `available` y `recommended` se calculan para esa ruta (como mucho uno "
+        "recomendado, por el nivel). Un método no disponible se devuelve igual, con su motivo. "
+        "`404 {reason: study_methods_disabled}` con el interruptor apagado."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def study_methods_catalog(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+    profile_repo: Annotated[StudentProfileRepository, Depends(get_profile_repo)],
+    path_id: Optional[UUID] = None,
+):
+    from src.domain import study_methods as sm
+
+    if not settings.STUDY_METHODS_ENABLED:
+        raise ReasonedError(404, "Los métodos de estudio no están disponibles.", "study_methods_disabled")
+    yo = UUID(current_user_id)
+    superados, recomendado = None, None
+    if path_id is not None:
+        try:
+            ruta = await service.get_owned(yo, path_id)
+        except PathNotFound:
+            raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+        superados = len(ruta.teaching.passed_concepts)
+        perfil = await profile_repo.find_by_student(yo)
+        concepto = perfil.mastery_by_concept.get(ruta.teaching.concept) if (perfil and ruta.teaching.concept) else None
+        # Sin evidencia calificada no se recomienda por dominio (invariante 3).
+        dominio = concepto.mastery if (concepto and concepto.informs_decision) else None
+        recomendado = sm.recommended(ruta.current_tier, dominio)
+    abiertas = settings.OPEN_QUESTIONS_ENABLED
+    metodos = []
+    for m in sm.METHODS:
+        disp = sm.availability(m.key, open_questions=abiertas, passed_concepts=superados)
+        es_rec = bool(recomendado and recomendado[0] == m.key and disp.available)
+        metodos.append({
+            "key": m.key, "name": m.name, "summary": m.summary, "good_for": m.good_for,
+            "available": disp.available, "unavailable_reason": disp.reason, "unavailable_text": disp.text,
+            "recommended": es_rec, "recommended_text": recomendado[1] if es_rec else None,
+        })
+    return {
+        "methods": metodos,
+        "paces": [
+            {"key": p.key, "name": p.name, "focus_minutes": p.focus_minutes, "break_minutes": p.break_minutes}
+            for p in sm.PACES
+        ],
+        "default_method": None,
+        "default_pace": sm.DEFAULT_PACE,
+    }

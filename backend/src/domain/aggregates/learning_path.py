@@ -93,6 +93,9 @@ class TeachingState:
     passed_concepts: list[str] = field(default_factory=list)
     #: Por qué la clase está donde está, en una frase para el estudiante.
     reason: str = ""
+    #: Método que se aplicó al paso actual (ADR-055). Puede diferir del elegido si un
+    #: requisito no se cumple; None = «que decida LARIA».
+    study_method: str | None = None
     updated_at: datetime = field(default_factory=_utc_now)
 
 
@@ -152,6 +155,27 @@ class LearningPathAggregate:
     #: El alumno empezó sin el pre-test (ADR-055). Es una decisión suya, no evidencia:
     #: no escribe nada en el perfil, y el pre-test se le sigue ofreciendo hasta que lo haga.
     placement_skipped: bool = False
+    #: Elecciones del alumno PARA ESTA RUTA (ADR-055): sobreviven a recargar y la fase 6
+    #: sabe qué método lleva. `*_set` False = nunca eligió aquí: vale su preferencia.
+    study_method: str | None = None
+    study_method_set: bool = False
+    study_pace: str | None = None
+    study_pace_set: bool = False
+    #: Mezcla de preguntas elegida para esta ruta (ADR-053/055); None = la del perfil.
+    assessment_open: int | None = None
+    assessment_choice: int | None = None
+
+    def choose_study(self, **cambios) -> None:
+        """Guarda lo que venga (`study_method`, `study_pace`, `assessment`); lo ausente no cambia."""
+        if "study_method" in cambios:
+            self.study_method, self.study_method_set = cambios["study_method"], True
+        if "study_pace" in cambios:
+            self.study_pace, self.study_pace_set = cambios["study_pace"], True
+        if "assessment" in cambios:
+            mezcla = cambios["assessment"]
+            self.assessment_open = mezcla.open_questions if mezcla else None
+            self.assessment_choice = mezcla.choice_questions if mezcla else None
+        self._touch()
 
     @staticmethod
     def create_for_topic(

@@ -20,7 +20,7 @@ from src.domain.catalog.voices import persona_for
 from src.domain.services.affect_policy import AffectPolicy
 from src.domain.services.content_safety import SafetyAction, safety_message
 from src.domain.services.repetition import repeats_recent
-from src.domain.services.visuals import extract_diagrams, image_requests, place_images
+from src.domain.services.visuals import extract_diagrams, image_requests, place_images, strip_foreign_images
 from src.domain.services.cognitive_style import CognitiveStyle, chosen_style, style_requested_in
 from src.domain.services.intent_detector import IntentDetector, TutorIntent
 from src.domain.services.learner_context import (
@@ -240,7 +240,8 @@ class ChatTutorService:
 
     async def _con_visuales(self, content: str, extra: dict) -> str:
         """Esquemas pintables (ADR-048) y la foto pedida con `[[imagen: …]]`, o sin la marca."""
-        content = _con_esquemas(content, extra)
+        # Antes de colocar las fotos propias: lo que el modelo escribió a mano no pasa.
+        content = strip_foreign_images(_con_esquemas(content, extra))
         pedidas = image_requests(content)
         encontradas = {q: await self._images.find(q) for q in pedidas} if self._images else {}
         content, fotos = place_images(content, encontradas)

