@@ -78,6 +78,10 @@ class AssessmentRequired(RuntimeError):
     """El tema aún no tiene nivelación: no se enseña sin saber de dónde partir."""
 
 
+class PlacementNotPending(RuntimeError):
+    """La ruta ya no espera el pre-test: ya tiene nivelación o ya empezó sin él."""
+
+
 class PassageTestNotAvailable(RuntimeError):
     """La ruta no ha terminado un tramo con otro por delante: no hay prueba de paso."""
 
@@ -415,6 +419,28 @@ class TeachingService:
             if not await self._attempts.find_by_quiz(quiz.id):
                 return [q.text for q in quiz.questions]
         return []
+
+    async def skip_placement(self, user_id: UUID, path_id: UUID) -> LearningPathAggregate:
+        """Empezar la clase sin el pre-test (ADR-055, §3 bis).
+
+        El pre-test se ofrece siempre, pero no bloquea (ADR-006). Saltarlo no es
+        evidencia: no escribe nada en el perfil («no medido» no es «medido en cero»)
+        y la clase empieza por el tramo básico. Si después hace el pre-test, su nivel
+        abre el tramo que toque (`_sync_tiers`); la prueba de paso no se salta.
+        """
+        path = await self.get_owned(user_id, path_id)
+        perfil = await self._profiles.find_by_student(user_id)
+        # Si el tema ya tiene nivelación, la ruta sale de `assessment` aquí y no hay
+        # nada que saltar.
+        await self._sync_assessment(path, perfil)
+        if path.teaching.phase != TeachingPhase.ASSESSMENT:
+            raise PlacementNotPending(path.title)
+        path.placement_skipped = True
+        if path.topic and not path.tiers:
+            path.start_tier(TIERS[0])
+        self._apply(path, self._policy.next_concept(path, perfil))
+        await self._paths.save(path)
+        return await self.projected(path, user_id)
 
     async def passage_test(self, user_id: UUID, path_id: UUID, assessment=None):
         """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.

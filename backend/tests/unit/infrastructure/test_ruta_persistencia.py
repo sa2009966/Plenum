@@ -49,3 +49,15 @@ def test_una_ruta_vieja_sin_clase_se_lee_en_assessment():
     r = Repo._from_doc(doc)
 
     assert r.teaching.phase == TeachingPhase.ASSESSMENT and r.topic == "" and r.modules[0].kind == ModuleKind.CONTENT
+
+
+def test_saltar_el_pretest_se_guarda_y_una_ruta_antigua_no_lo_tiene():
+    p = LearningPathAggregate.create_for_topic(uuid4(), "python", "Python", [{"concept": "variables"}])
+    assert Repo._from_doc(Repo._to_doc(p)).placement_skipped is False
+
+    p.placement_skipped = True
+    assert Repo._from_doc(Repo._to_doc(p)).placement_skipped is True
+
+    antiguo = Repo._to_doc(p)
+    del antiguo["placement_skipped"]
+    assert Repo._from_doc(antiguo).placement_skipped is False

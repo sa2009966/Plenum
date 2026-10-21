@@ -96,7 +96,8 @@ calificada (invariante: una duda no es una nota).
   elimina ni lo cambia.
 - **Pero no es obligatorio:** el alumno puede **saltarlo y continuar la clase** (ADR-006: ofrecer,
   no bloquear). Hoy no es así —sin nivelación la ruta queda en `assessment` y `/lesson` responde
-  `409`—, así que esto **cambia el comportamiento actual** y se implementa en la fase 3:
+  `409`—, así que esto **cambia el comportamiento actual**. **Implementado** el 2026-10-20, antes de la fase 3, con
+  `POST /learning/paths/{id}/skip-placement` (tests: `tests/api/test_saltar_pretest_e2e.py`):
   - Saltarlo **no escribe nada en el perfil**: no hay evidencia, y «no medido» no es «medido en
     cero». Se guarda solo en la ruta (`placement_skipped`), como decisión del alumno.
   - La clase empieza por el **tramo básico**, con los prerrequisitos sin medir dados por sabidos,
