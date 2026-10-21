@@ -105,5 +105,6 @@ Por qué el sistema es así. No se editan: una decisión nueva va en un ADR nuev
 | [ADR-052](adr/ADR-052-corrector-de-respuestas-abiertas.md) | Respuestas abiertas: el modelo juzga cada idea clave con una cita literal, el dominio comprueba la cita y pone la nota (resiste inyecciones, detecta copias) |
 | [ADR-053](adr/ADR-053-preguntas-abiertas-y-evaluacion-mixta.md) | Preguntas abiertas: nivelación solo abierta (4 por ronda), mezcla configurable en clase/práctica/paso (3+3), crédito parcial; detrás de `OPEN_QUESTIONS_ENABLED` |
 | [ADR-054](adr/ADR-054-preguntar-durante-la-clase.md) | Preguntar a LARIA durante la clase: un chat por ruta, contexto del paso sin respuestas de la comprobación, duda = señal débil; detrás de `CLASS_QUESTIONS_ENABLED` |
+| [ADR-055](adr/ADR-055-catalogo-de-metodos-de-estudio.md) | **Propuesto.** Catálogo de 5 métodos con evidencia (recuerdo activo, Explícalo tú, ejemplos resueltos, porqué, intercalado) y ritmos (libre por defecto, Pomodoro 25/5 y 15/3); sin estilos de aprendizaje; reglas de cambio como hipótesis H1–H5 en modo sombra |
 
 Swagger interactivo (solo con `ENABLE_DOCS=true`): `/docs`.
