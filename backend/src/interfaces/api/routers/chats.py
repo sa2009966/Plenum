@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json
+import logging
 
 from src.application.services.conversation_memory import ConversationMemory
 from src.application.services.chat_tutor_service import ChatTutorService
@@ -42,6 +43,8 @@ from src.interfaces.schemas.chat_schemas import (
     GenerateTitleRequest,
     TitleResponse,
 )
+
+logger = logging.getLogger("laria.chat")
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
@@ -319,12 +322,17 @@ async def stream_message(
             if envelope is not None:
                 yield _sse("envelope", envelope.to_dict())
             yield _sse("done", {"message_id": str(chat.messages[-1].id)})
-        except Exception:
+        except Exception as exc:
+            # Antes no quedaba rastro: el estudiante veía el error y en Render no
+            # había forma de saber si fue el proveedor, un timeout o un fallo nuestro.
+            logger.exception("chat_stream_fallo chat=%s %s", chat_id, type(exc).__name__)
             yield _sse(
                 "error",
                 plain_envelope(
                     "error",
-                    "No pude generar la respuesta. Intenta de nuevo.",
+                    # Los mensajes del proveedor ya están escritos para el estudiante
+                    # (p. ej. «espera unos segundos»); lo demás no se le enseña.
+                    str(exc) if isinstance(exc, IAAnalysisError) else "No pude generar la respuesta. Intenta de nuevo.",
                     grounded=chat.document_id is not None,
                 ).to_dict(),
             )
