@@ -33,6 +33,7 @@ from src.domain.aggregates.student_profile import StudentProfile
 from src.domain.catalog.prerequisite_seeds import seed_display_labels
 from src.domain.catalog.voices import persona_for
 from src.domain.concept_identity import canonicalize_concept
+from src.domain.ports.image_finder import ImageFinder
 from src.domain.ports.lesson_generator import LessonGenerator, LessonRequest, SyllabusItem
 from src.domain.ports.repositories import (
     LearningPathRepository,
@@ -42,7 +43,7 @@ from src.domain.ports.repositories import (
 )
 from src.domain.services.cognitive_style import chosen_style
 from src.domain.services.concept_tagger import ConceptTagger
-from src.domain.services.visuals import extract_diagrams
+from src.domain.services.visuals import extract_diagrams, image_requests, place_images
 from src.domain.services.diagnostic_planner import (
     PlacementLevel,
     display_label,
@@ -76,6 +77,10 @@ class PathNotFound(LookupError):
 
 class AssessmentRequired(RuntimeError):
     """El tema aún no tiene nivelación: no se enseña sin saber de dónde partir."""
+
+
+class PlacementNotPending(RuntimeError):
+    """La ruta ya no espera el pre-test: ya tiene nivelación o ya empezó sin él."""
 
 
 class PassageTestNotAvailable(RuntimeError):
@@ -126,7 +131,10 @@ class TeachingService:
         attempt_repository: QuizAttemptRepository | None = None,
         safety=None,
         research: CurriculumResearchService | None = None,
+        image_finder: ImageFinder | None = None,
     ) -> None:
+        #: Fotos con licencia para objetos reales (ADR-048, fase 2); None = apagado.
+        self._images = image_finder
         self._paths = path_repository
         self._profiles = profile_repository
         self._quizzes = quiz_repository
@@ -302,6 +310,9 @@ class TeachingService:
         perfil = await self._profiles.find_by_student(user_id)
         await self._sync_assessment(path, perfil)
         await self._sync_tiers(path, perfil)
+        if path.placement_skipped and path.topic and perfil and perfil.level_for_topic(path.topic):
+            # Hizo el pre-test después de saltarlo: ya no hay que ofrecérselo.
+            path.placement_skipped = False
         t = path.teaching
         if t.phase == TeachingPhase.ASSESSMENT:
             await self._paths.save(path)
@@ -344,6 +355,7 @@ class TeachingService:
             persona=persona_for(perfil.voice_choice if perfil else None),
             session_minutes=(perfil.session_minutes or None) if perfil else None,
             key_points=tuple(modulo.key_points) if modulo else (),
+            images=self._images is not None,
         )
         leccion = await self._generator.generate_lesson(peticion)
         quiz = QuizAggregate.create(
@@ -357,6 +369,9 @@ class TeachingService:
         await self._quizzes.save(quiz)
         # Solo llegan los esquemas que se pueden pintar (ADR-048).
         markdown, _ = extract_diagrams(leccion.markdown)
+        # La foto se busca una vez y queda en la explicación guardada: recargar no la repite.
+        encontradas = {q: await self._images.find(q) for q in image_requests(markdown)} if self._images else {}
+        markdown, _ = place_images(markdown, encontradas)
         path.deliver_lesson(markdown, leccion.example_summary, quiz.id)
         await self._paths.save(path)
         return LessonStep(path, quiz)
@@ -415,6 +430,28 @@ class TeachingService:
             if not await self._attempts.find_by_quiz(quiz.id):
                 return [q.text for q in quiz.questions]
         return []
+
+    async def skip_placement(self, user_id: UUID, path_id: UUID) -> LearningPathAggregate:
+        """Empezar la clase sin el pre-test (ADR-055, §3 bis).
+
+        El pre-test se ofrece siempre, pero no bloquea (ADR-006). Saltarlo no es
+        evidencia: no escribe nada en el perfil («no medido» no es «medido en cero»)
+        y la clase empieza por el tramo básico. Si después hace el pre-test, su nivel
+        abre el tramo que toque (`_sync_tiers`); la prueba de paso no se salta.
+        """
+        path = await self.get_owned(user_id, path_id)
+        perfil = await self._profiles.find_by_student(user_id)
+        # Si el tema ya tiene nivelación, la ruta sale de `assessment` aquí y no hay
+        # nada que saltar.
+        await self._sync_assessment(path, perfil)
+        if path.teaching.phase != TeachingPhase.ASSESSMENT:
+            raise PlacementNotPending(path.title)
+        path.placement_skipped = True
+        if path.topic and not path.tiers:
+            path.start_tier(TIERS[0])
+        self._apply(path, self._policy.next_concept(path, perfil))
+        await self._paths.save(path)
+        return await self.projected(path, user_id)
 
     async def passage_test(self, user_id: UUID, path_id: UUID, assessment=None):
         """La prueba de paso de ESTA ruta (ADR-042), sin pedir tema ni crear otra ruta.

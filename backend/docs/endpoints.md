@@ -50,7 +50,7 @@ Todos requieren JWT. Solo el **propietario** opera sobre el recurso. Ajeno/inexi
 | `DELETE` | `/api/v1/documents/{document_id}` | Eliminar (`204`) |
 | `POST` | `/api/v1/documents/{document_id}/analyze` | Análisis IA (cachea resultado; `force_refresh=true` opcional) |
 | `POST` | `/api/v1/documents/{document_id}/ask` | Pregunta tutor sobre el documento (registra evidencia) |
-| `POST` | `/api/v1/documents/{document_id}/quiz` | Generar quiz (`num_questions` 1–20). **Sin** `correct_answer` en la respuesta |
+| `POST` | `/api/v1/documents/{document_id}/quiz` | Generar quiz (`num_questions` 1–20). **Sin** `correct_answer` en la respuesta Con `OPEN_QUESTIONS_ENABLED` lleva abiertas según la mezcla; body opcional `{assessment}` (ADR-053) |
 
 **IA fallida:** `502` con mensaje seguro (`IAAnalysisError`).
 
@@ -80,7 +80,7 @@ turno es conversación libre y no sustituye al tutor grounded.
 | `PUT` | `/api/v1/chats/{chat_id}` | Renombrar o vincular documento |
 | `POST` | `/api/v1/chats/{chat_id}/messages` | Añadir mensaje (`content` hasta **20 000** caracteres; `role` solo `user` o `system`, `assistant` → 422: [ADR-043](adr/ADR-043-cerrar-abusos-de-evaluacion-y-chat.md), [ADR-046](adr/ADR-046-tope-del-chat-20000.md)). Si `role="user"`, **el tutor responde en la misma llamada**, el turno cuenta como evidencia y su mensaje queda persistido con el envelope en `metadata`. Para una nota que no debe disparar turno, usa `role="system"` |
 | `POST` | `/api/v1/chats/{chat_id}/stream` | Igual, en SSE: `thinking` → `token`(s) → `envelope` → `done` |
-| `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor |
+| `POST` | `/api/v1/chats/{chat_id}/quiz` | Cuestionario sobre el **material vinculado al chat** (`num_questions` 1–20). Sin material → `422`. No incluye `correct_answer`: el intento se envía a `POST /quizzes/{id}/attempts` y se califica en servidor Con `OPEN_QUESTIONS_ENABLED` lleva abiertas según la mezcla; body opcional `{assessment}` (ADR-053) |
 | `DELETE` | `/api/v1/chats/{chat_id}` | Eliminar (`204`) |
 
 **Envelope del tutor** (`metadata` del mensaje `assistant`, y evento `envelope` en SSE):
@@ -130,6 +130,7 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 | `POST` | `/api/v1/learning/paths` | Crear una ruta (plan de módulos y prerrequisitos) |
 | `GET` | `/api/v1/learning/paths/{path_id}` | Ruta por id, con el progreso proyectado |
 | `DELETE` | `/api/v1/learning/paths/{path_id}` | Borrar una clase (`204`; ajena o ya borrada → `404`). Conserva lo aprendido y el nivel del tema: recrearla no repite la nivelación |
+| `POST` | `/api/v1/learning/paths/{path_id}/skip-placement` | **Empezar sin pre-test** ([ADR-055](adr/ADR-055-catalogo-de-metodos-de-estudio.md)): el pre-test se ofrece siempre pero no es obligatorio. La clase empieza por el tramo básico, sin escribir nada en el perfil. La ruta devuelve `placement_skipped: true` (seguir ofreciendo el pre-test; si se hace después, su nivel abre el tramo que toque). `200` con la ruta; `404` ruta ajena; `409` si la ruta ya no espera el pre-test |
 | `POST` | `/api/v1/learning/paths/{path_id}/passage-test` | **Prueba de paso de esta ruta** al terminar un tramo ([ADR-042](adr/ADR-042-prueba-de-paso-de-la-ruta.md)): preguntas sobre los módulos estudiados, con la ronda de su nivel; no pide tema ni crea otra ruta. Se responde en `/quizzes/{id}/attempts`; si sube de nivel, la siguiente `/lesson` abre el tramo siguiente. `201`; `404` ruta ajena; `409` si el tramo no está terminado o no hay tramo siguiente; `422` tema bloqueado; `502` el modelo falló. Límite 6/min. Body opcional `{assessment}`: proporción de abiertas, conservando el reparto por dificultad (ADR-053) |
 | `GET` | `/api/v1/learning/paths/{path_id}/next` | Hasta 3 sugerencias de cómo seguir ([ADR-034](adr/ADR-034-como-seguir-tras-una-ruta.md)): `level_up`, `advance` o `related`, con `needs_placement` |
 | `GET` | `/api/v1/learning/me/study-goals` | Metas de estudio: `session_minutes` y `daily_goal_minutes` |
@@ -144,7 +145,7 @@ El envelope es determinista: lo decide el dominio, no el modelo.
 
 El perfil se actualiza vía projector a partir de `TutorQuestionAskedEvent` y `QuizAttemptCompletedEvent` (bus `memory` o `outbox`). Diagrama: [`docs/diagramas/laria-evidencia.png`](../../docs/diagramas/laria-evidencia.png).
 
-**La clase, en orden:** nivelación (`/quizzes/diagnostic`) → `POST /paths/from-topic` → `/lesson` ↔ `/check` hasta terminar el tramo → `/passage-test` → `/quizzes/{id}/attempts` → si sube, `/lesson` abre el tramo siguiente en la misma ruta. `/lesson` responde **409** sin nivelación del tema ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md), [ADR-037](adr/ADR-037-rutas-por-tramos.md)).
+**La clase, en orden:** nivelación (`/quizzes/diagnostic`) → `POST /paths/from-topic` → `/lesson` ↔ `/check` hasta terminar el tramo → `/passage-test` → `/quizzes/{id}/attempts` → si sube, `/lesson` abre el tramo siguiente en la misma ruta. `/lesson` responde **409** sin nivelación del tema, salvo que el alumno haya elegido empezar sin ella con `/skip-placement` ([ADR-028](adr/ADR-028-la-clase-ruta-y-ciclo-de-ensenanza.md), [ADR-037](adr/ADR-037-rutas-por-tramos.md)).
 
 ---
 

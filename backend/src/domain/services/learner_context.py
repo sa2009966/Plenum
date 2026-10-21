@@ -37,6 +37,8 @@ class LearnerContext:
     avoid_reply: str = ""
     #: La clase en la que pregunta, si pregunta desde una (ADR-054).
     class_session: "ClassSession | None" = None
+    #: Hay buscador de imágenes con licencia (ADR-048, fase 2): se puede pedir una foto.
+    images: bool = False
 
     def __bool__(self) -> bool:
         return bool(

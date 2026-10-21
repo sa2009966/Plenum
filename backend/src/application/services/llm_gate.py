@@ -271,10 +271,13 @@ class LlmGate:
         decision: PedagogicalDecision | None = None,
         context: str | None = None,
         student_id: UUID | None = None,
+        open_items: int = 0,
     ) -> Quiz:
         focus = ",".join(decision.focus_concepts) if decision else ""
         difficulty = decision.target_difficulty.value if decision else "medium"
-        focus_hash = self._hash(focus, difficulty, self.POLICY_VERSION, str(num_questions))
+        focus_hash = self._hash(
+            focus, difficulty, self.POLICY_VERSION, str(num_questions), *([f"open={open_items}"] if open_items else [])
+        )
         cache_key = f"quiz:{document.id}:{focus_hash}"
 
         # Reuso de quizzes similares del mismo documento
@@ -282,6 +285,9 @@ class LlmGate:
             existing = await self._quiz_repo.find_by_document(document.id)
             for quiz in existing[:5]:
                 if len(quiz.questions) != num_questions:
+                    continue
+                # Un quiz reutilizado tiene que traer las mismas abiertas (ADR-053).
+                if sum(1 for q in quiz.questions if q.is_open) != open_items:
                     continue
                 tags = set()
                 for q in quiz.questions:
@@ -315,7 +321,7 @@ class LlmGate:
                     return Quiz(questions=questions)
 
         choice = self._router.select(LlmTask.QUIZ, decision)
-        quiz = await self._call_quiz(document, num_questions, decision, context, choice.model)
+        quiz = await self._call_quiz(document, num_questions, decision, context, choice.model, open_items)
         if self._cache is not None:
             payload = {
                 "questions": [
@@ -377,8 +383,11 @@ class LlmGate:
         decision: PedagogicalDecision | None,
         context: Optional[str],
         model: str,
+        open_items: int = 0,
     ) -> Quiz:
+        # Sin abiertas no se pasa el argumento: los proveedores anteriores no lo conocen.
+        extra = {"open_items": open_items} if open_items else {}
         fn = getattr(self._ia, "generate_quiz_with_model", None)
         if callable(fn):
-            return await fn(document, num_questions, decision, context, model=model)
-        return await self._ia.generate_quiz(document, num_questions, decision, context)
+            return await fn(document, num_questions, decision, context, model=model, **extra)
+        return await self._ia.generate_quiz(document, num_questions, decision, context, **extra)

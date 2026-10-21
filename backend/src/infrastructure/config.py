@@ -164,6 +164,9 @@ class Settings(BaseSettings):
     OPEN_QUESTIONS_ENABLED: bool = False
     #: Preguntar a LARIA durante la clase (ADR-054). Apagado: la API de antes, sin chat de clase.
     CLASS_QUESTIONS_ENABLED: bool = False
+    #: Fotos con licencia de Wikimedia para objetos reales (ADR-048, fase 2). Apagado hasta
+    #: que el cliente las pinte. Necesita OPENAI_API_KEY: cada foto pasa por la moderación.
+    WIKIMEDIA_IMAGES_ENABLED: bool = False
 
     # Motor adaptativo (ADR-004). Son hipótesis nombradas, no constantes:
     # se calibran con datos de outcome, no se tocan a ojo.

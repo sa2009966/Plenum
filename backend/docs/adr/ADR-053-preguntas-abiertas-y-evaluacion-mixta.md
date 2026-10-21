@@ -100,8 +100,13 @@
   - El prompt ya pide que las ideas clave solo exijan lo que la pregunta pide, pero no lo garantiza.
   - Se valida su número, no su contenido.
   - Es lo primero que hay que calibrar con un profesor.
-- **Los quizzes sobre documentos** (`/documents/{id}/quiz` y `/chats/{id}/quiz`) siguen siendo solo
-  de opción múltiple: no estaban en el pedido ni en el contrato.
+- **Los quizzes sobre documentos** (`/documents/{id}/quiz` y `/chats/{id}/quiz`) eran solo de opción
+  múltiple. **Resuelto (2026-10-21):** con `OPEN_QUESTIONS_ENABLED` siguen la mezcla como la
+  práctica (body `{assessment}`, si no la elegida, si no 3 + 3; `num_questions` solo cuenta
+  apagadas). Las abiertas se piden con el mismo contrato y se responden con lo que dice el
+  documento. Si el modelo no respeta el reparto se regenera una vez y se descarta lo que sobra
+  (`fit_to_mix`). Un quiz reutilizado del mismo documento tiene que traer las mismas abiertas.
+  Pendiente de probar con el modelo real.
 - **Coste y espera:** una llamada al modelo por respuesta abierta (unos 600 tokens). Enviar un
   intento tarda de 2 a 5 s más.
 - **El corrector está medido con un banco pequeño escrito por quien lo diseñó (ADR-052).** Antes de

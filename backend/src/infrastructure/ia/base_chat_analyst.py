@@ -123,6 +123,16 @@ def _describir_fallo(exc: Exception) -> str:
             pass
         return f"http={exc.response.status_code}{detalle}"
     return type(exc).__name__
+#: Tope de una respuesta a una pregunta de otro tema en clase: dos frases caben de
+#: sobra. Sin tope, la instrucción sola no bastaba (el tutor desarrollaba el tema).
+MAX_TOKENS_FUERA_DE_TEMA = 120
+
+
+def _tope_de_respuesta(learner) -> int | None:
+    sesion = getattr(learner, "class_session", None) if learner else None
+    return MAX_TOKENS_FUERA_DE_TEMA if sesion is not None and sesion.off_topic else None
+
+
 #: Un título más largo se recorta, no se rechaza: el modelo dio algo usable.
 _MAX_TITLE_WORDS = 7
 _MAX_TITLE_CHARS = 120
@@ -523,7 +533,7 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             quiz_request=quiz_request,
             learner=learner,
         )
-        return await self._chat(prompt.system, prompt.user, model=model)
+        return await self._chat(prompt.system, prompt.user, model=model, max_tokens=_tope_de_respuesta(learner))
 
     async def judge(self, question: OpenQuestion, answer: str) -> RubricJudgement:
         """Juicio de una respuesta abierta (ADR-052). Temperatura 0: corregir no es crear."""
@@ -578,6 +588,8 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             "temperature": 0.3,
             "stream": True,
         }
+        if (tope := _tope_de_respuesta(learner)) is not None:
+            payload["max_tokens"] = tope
         try:
             client = await self._get_client()
             started = time.monotonic()
@@ -637,10 +649,11 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
             raise IAAnalysisError(_MSG_SATURADO if saturado else _MSG_PROVEEDOR) from exc
 
     async def generate_quiz(
-        self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None
+        self, document: DocumentAggregate, num_questions: int = 5, decision=None, context: str | None = None,
+        *, open_items: int = 0,
     ) -> Quiz:
         return await self.generate_quiz_with_model(
-            document, num_questions, decision, context, model=self.model
+            document, num_questions, decision, context, model=self.model, open_items=open_items
         )
 
     async def generate_quiz_with_model(
@@ -651,9 +664,10 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         context: str | None = None,
         *,
         model: str,
+        open_items: int = 0,
     ) -> Quiz:
         text = context if context is not None else document.content
-        prompt = self._policy.generate_quiz(text, num_questions, decision)
+        prompt = self._policy.generate_quiz(text, num_questions, decision, open_items)
         data = await self._chat_json(prompt.system, prompt.user, model=model)
         return self._quiz_desde_json(data)
 

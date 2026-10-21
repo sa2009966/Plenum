@@ -24,13 +24,20 @@ class OpenAIModerator:
         self._client = http_client
 
     async def scores(self, text: str) -> Mapping[str, float]:
+        return await self.scores_for(text)
+
+    async def image_scores(self, url: str) -> Mapping[str, float]:
+        """Moderación de una imagen por URL (omni-moderation). Falla con ModerationUnavailable."""
+        return await self.scores_for([{"type": "image_url", "image_url": {"url": url}}])
+
+    async def scores_for(self, entrada) -> Mapping[str, float]:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=_TIMEOUT_S)
         try:
             r = await self._client.post(
                 _URL,
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                json={"model": self._model, "input": text},
+                json={"model": self._model, "input": entrada},
             )
             r.raise_for_status()
             crudo = r.json()["results"][0]["category_scores"]

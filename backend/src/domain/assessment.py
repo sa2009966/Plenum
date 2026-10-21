@@ -81,3 +81,17 @@ def check_layout(base_difficulties: tuple, mix: AssessmentMix) -> tuple[tuple, t
     estirado = [base[i % len(base)] for i in range(mix.total)]
     estirado.sort(key=lambda d: orden.get(getattr(d, "value", d), 1))
     return tuple(estirado), interleave(mix.open_questions, mix.total)
+
+
+def fit_to_mix(questions: list, mix: AssessmentMix) -> tuple[list, bool]:
+    """Ajusta lo generado a la mezcla: como mucho las abiertas y cerradas pedidas, en orden. Pura.
+
+    Como `fit_to_plan` en la nivelación: el modelo no siempre respeta el reparto.
+    Lo que sobra se descarta; `cumple` es False si falta alguno de los dos tipos y
+    quien llama decide si regenerar.
+    """
+    abiertas = [q for q in questions if q.is_open][: mix.open_questions]
+    cerradas = [q for q in questions if not q.is_open][: mix.choice_questions]
+    elegidas = {id(q) for q in abiertas + cerradas}
+    ajustadas = [q for q in questions if id(q) in elegidas]
+    return ajustadas, len(abiertas) == mix.open_questions and len(cerradas) == mix.choice_questions

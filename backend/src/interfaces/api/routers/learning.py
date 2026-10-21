@@ -11,6 +11,7 @@ from src.application.services.teaching_service import (
     NoPendingCheck,
     PassageTestNotAvailable,
     PathNotFound,
+    PlacementNotPending,
     TeachingService,
 )
 from src.interfaces.schemas.quiz_schemas import QuizPublicResponse
@@ -354,6 +355,7 @@ def _map_path(p: LearningPathAggregate) -> LearningPathResponse:
         teaching=_map_teaching(p),
         tiers=list(p.tiers),
         next_tier=p.next_tier,
+        placement_skipped=p.placement_skipped,
     )
 
 
@@ -561,6 +563,36 @@ async def lesson(
         check=quiz_to_public_response(paso.check) if paso.check else None,
         visuals=[e.to_dict() for e in esquemas],
     )
+
+
+@router.post(
+    "/paths/{path_id}/skip-placement",
+    response_model=LearningPathResponse,
+    summary="Empezar la clase sin pre-test",
+    description=(
+        "El pre-test (la nivelación del tema) se ofrece siempre, pero no es obligatorio "
+        "(ADR-055): con esto la clase empieza por el tramo básico sin hacerlo. No escribe "
+        "nada en el perfil. La ruta devuelve `placement_skipped: true` para que el cliente "
+        "siga ofreciendo el pre-test; si se hace después, su nivel abre el tramo que toque. "
+        "**409** si la ruta ya no espera el pre-test (`teaching.phase != \"assessment\"`)."
+    ),
+    responses={**RESP_401_UNAUTHORIZED},
+)
+async def skip_placement(
+    path_id: UUID,
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    service: Annotated[TeachingService, Depends(get_teaching_service)],
+):
+    try:
+        path = await service.skip_placement(UUID(current_user_id), path_id)
+    except PathNotFound:
+        raise HTTPException(status_code=404, detail=_MSG_NO_ENCONTRADO)
+    except PlacementNotPending:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta clase ya empezó: el pre-test solo se puede saltar al principio.",
+        )
+    return _map_path(path)
 
 
 @router.post(

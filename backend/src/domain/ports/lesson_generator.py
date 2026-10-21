@@ -38,6 +38,8 @@ class LessonRequest:
     #: Tipo de cada pregunta de la comprobación, en el mismo orden ("choice"/"open",
     #: ADR-053). Vacío = todas de opción múltiple, como antes.
     check_kinds: tuple[str, ...] = ()
+    #: Hay buscador de imágenes con licencia (ADR-048, fase 2): se puede pedir una foto.
+    images: bool = False
 
 
 @dataclass(frozen=True)
