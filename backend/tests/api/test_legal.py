@@ -43,6 +43,23 @@ def test_un_texto_con_huecos_no_se_da_por_completo(client):
         assert doc["pendiente"], "los huecos deben enumerarse para no olvidarlos"
 
 
+@pytest.mark.parametrize("slug", ["terminos", "privacidad", "cookies"])
+def test_los_textos_publicados_no_tienen_huecos(client, slug):
+    """Ya están completos: un hueco nuevo los devolvería a borrador sin que nadie lo notara."""
+    doc = client.get(f"/api/v1/legal/{slug}").json()
+
+    assert doc["completo"] is True, doc["pendiente"]
+
+
+def test_la_politica_de_privacidad_cumple_lo_minimo_del_aviso_de_privacidad(client):
+    """Art. 24 de la Ley para la Protección de Datos Personales de El Salvador: domicilio,
+    base legal, derechos ARCO-POL, autoridad y uso de cookies."""
+    texto = client.get("/api/v1/legal/privacidad").json()["markdown"]
+
+    for frase in ("San Salvador", "consentimiento", "portabilidad", "Agencia de Ciberseguridad del Estado", "/legal/cookies"):
+        assert frase in texto, frase
+
+
 def test_un_texto_inexistente_es_404(client):
     assert client.get("/api/v1/legal/otra-cosa").status_code == 404
 

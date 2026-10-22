@@ -258,4 +258,4 @@ queda, por prioridad:
    un evaluador que las reclasifique.
 7. **Volumen de Atlas:** 2.4 MB de 512 MB hoy. Revisarlo con `scripts/mongo_volumen.py`; si un chat
    se acerca a los 16 MB, mover `messages` a su colección ([mongodb-schema.md](mongodb-schema.md#volumen-y-capacidad)).
-8. **Textos legales:** quedan huecos `[[COMPLETAR]]` (`GET /legal/{slug}` devuelve `pendiente`).
+8. **Textos legales:** completos desde la versión 2026-10-22 (ley de El Salvador, Decreto 144 de 2024). Queda pendiente en el código: pedir el consentimiento expreso al registrarse (casilla, y guardar qué versión se aceptó, como pide el art. 24) y que el registro pregunte si la persona es menor de 18 años y tiene autorización.

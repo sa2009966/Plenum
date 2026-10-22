@@ -1,6 +1,6 @@
 # Política de cookies
 
-**Versión 2026-10-02.**
+**Versión 2026-10-22.** Esta política la aplica **Ricardo Aguilar**, responsable de Plenum. Si tienes dudas, escríbenos a **supportplenum@gmail.com**.
 
 ## Qué es una cookie, y por qué hablamos también de "almacenamiento local"
 
@@ -30,6 +30,8 @@ Algunas cookies llevan un sufijo en el nombre (por ejemplo `__session_abc123`); 
 | `laria_voz` | Recordar si prefieres que LARIA lea en voz alta o solo texto | Hasta que lo borras |
 | `theme` | Recordar si prefieres el tema claro, el oscuro o el del sistema | Hasta que lo borras |
 | `laria_nivelacion_ofrecida` | Recordar en qué chats ya te ofrecimos la nivelación, para no repetírtelo. Guarda solo identificadores de chat, nunca su contenido | Hasta que lo borras |
+| `laria_pomodoro:…` | Si estudias con el ritmo Pomodoro, el estado del temporizador de cada clase (en qué tramo vas y cuánto queda), para que no se pierda al recargar la página. Hay una por clase | Hasta que lo borras |
+| `laria_clase_chat_cerrado` | Recordar si cerraste el panel del chat durante la clase | Hasta que lo borras |
 | `laria_meta_felicitada` | Recordar el último día en que LARIA te felicitó por cumplir tu objetivo diario, para no repetirlo | Hasta que lo borras |
 | `__clerk_environment` | Configuración del inicio de sesión, guardada por Clerk para cargar más rápido | Hasta que lo borras |
 
@@ -42,6 +44,8 @@ Son preferencias y configuración, sin seguimiento. La voz que eliges para LARIA
 **No usamos analítica de terceros**: ni Google Analytics, ni Vercel Analytics, ni herramientas que graben lo que haces en la página.
 
 **Las tipografías se sirven desde nuestro propio dominio**: tu navegador no descarga fuentes de servidores de terceros.
+
+**Las fotos de Wikimedia vienen de sus servidores.** Algunas explicaciones muestran fotos de Wikimedia Commons, que tu navegador descarga directamente de los servidores de la Fundación Wikimedia. Como al visitar cualquier web, Wikimedia recibe tu dirección IP y los datos técnicos de tu navegador, y cualquier cookie técnica que pudiera usar se rige por su propia política de privacidad, no por esta. Lo explicamos en la [Política de privacidad](/legal/privacidad).
 
 **El servidor de la aplicación no instala cookies**: las únicas son las del inicio de sesión de Clerk.
 
