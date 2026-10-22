@@ -1,4 +1,6 @@
 """Cobertura del parser multi-formato."""
+from pathlib import Path
+
 import pytest
 
 from src.application.file_parser import (
@@ -7,6 +9,9 @@ from src.application.file_parser import (
     is_supported,
     parse_file,
 )
+
+#: PDF de una página con el texto "Hola Plenum, texto de prueba", cifrados con pikepdf
+_PDFS = Path(__file__).resolve().parents[2] / "fixtures" / "pdf"
 
 
 class TestParseFile:
@@ -37,6 +42,18 @@ class TestParseFile:
         # Bytes inválidos como PDF deberían lanzar UnsupportedFormatError
         with pytest.raises(UnsupportedFormatError):
             parse_file("doc.pdf", b"not a real pdf content")
+
+    @pytest.mark.parametrize("nombre", ["protegido-aes128.pdf", "protegido-aes256.pdf"])
+    def test_pdf_protegido_sin_contrasena_de_apertura_se_lee(self, nombre):
+        """Los PDF "protegidos" (se abren sin contraseña pero no dejan editar ni copiar)
+        van cifrados con AES. Sin pycryptodome, PyPDF2 fallaba ("PyCryptodome is
+        required") o decía que el PDF estaba escaneado."""
+        text = parse_file(nombre, (_PDFS / nombre).read_bytes())
+        assert "Hola Plenum" in text
+
+    def test_pdf_con_contrasena_de_apertura_lo_dice(self):
+        with pytest.raises(UnsupportedFormatError, match="contraseña"):
+            parse_file("con-contrasena.pdf", (_PDFS / "con-contrasena.pdf").read_bytes())
 
     def test_binary_raises_when_not_readable(self):
         with pytest.raises(UnsupportedFormatError):
