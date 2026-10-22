@@ -239,6 +239,17 @@ def _parse_pdf(data: bytes) -> str:
         reader = PdfReader(io.BytesIO(data))
     except Exception as exc:  # noqa: BLE001
         raise UnsupportedFormatError(f"No se pudo leer el PDF: {exc}") from exc
+    # Los "protegidos" contra copia se abren con la contraseña vacía; si hace falta
+    # una de verdad, mejor decirlo que fallar después como "escaneado"
+    if reader.is_encrypted:
+        try:
+            abierto = reader.decrypt("")
+        except Exception as exc:  # noqa: BLE001
+            raise UnsupportedFormatError(f"No se pudo leer el PDF: {exc}") from exc
+        if not abierto:
+            raise UnsupportedFormatError(
+                "El PDF está protegido con contraseña. Quítasela (por ejemplo, imprímelo como PDF) y súbelo de nuevo."
+            )
     try:
         paginas = len(reader.pages)
     except Exception as exc:  # noqa: BLE001
