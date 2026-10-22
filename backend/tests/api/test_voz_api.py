@@ -142,3 +142,33 @@ def test_las_voces_traen_frase_de_muestra_por_genero(client):
     r = client.get("/api/v1/speech/voices", headers=_h(client)).json()
 
     assert "tu tutor de" in r["sample_texts"]["masculina"] and "tu tutora de" in r["sample_texts"]["femenina"]
+
+
+@pytest.mark.asyncio
+async def test_cortar_el_audio_cierra_el_generador_de_la_voz(monkeypatch):
+    """Producción, 22-oct-2026: al cortar el audio quedaba abierto el generador interno
+    («aclose(): asynchronous generator is already running»). Ahora se cierra en la
+    misma tarea, aunque el cliente se vaya a mitad."""
+    from src.infrastructure.config import settings
+    from src.interfaces.api.routers import speech
+
+    cerrado = []
+
+    class Voz:
+        async def stream(self, text, affect, voice=None):
+            try:
+                for trozo in (b"uno", b"dos", b"tres"):
+                    yield trozo
+            finally:
+                cerrado.append(True)
+
+    class Prefs:
+        async def voice(self, _):
+            return None
+
+    monkeypatch.setattr(settings, "TTS_ENABLED", True)
+    respuesta = await speech.speak(speech.SpeechRequest(text="Una frase para leer."), str(uuid4()), Voz(), Prefs())
+    cuerpo = respuesta.body_iterator
+    assert await cuerpo.__anext__() == b"uno"
+    await cuerpo.aclose()  # el cliente corta el audio
+    assert cerrado == [True]

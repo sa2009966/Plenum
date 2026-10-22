@@ -92,7 +92,15 @@ def test_las_citas_reales_sostienen_la_nota_aunque_cambie_la_puntuacion():
         ("El sistema nervioso recibe estímulos del entorno", "recibe estímulos del entorno", True),
         ("El sistema nervioso coordina las respuestas", "El sistema nervioso coordina", True),  # «sistema» es tema
         ("En la segunda línea va la nota sol", "va la nota sol", True),  # «nota» musical es tema
-        ("La luz", "La luz", False),  # dos palabras no prueban nada
+        ("La luz", "La luz", False),  # una sola palabra con contenido no prueba nada
+        # Producción, 22-oct-2026: citas cortas y válidas que se descartaban (respuestas buenas = «incorrect»).
+        ("Evita caries y mal aliento y protege la salud", "Evita caries", True),
+        ("Evita caries y mal aliento y protege la salud", "mal aliento", True),
+        ("Cepillo y pasta con flúor, dos minutos, y la lengua", "dos minutos", True),
+        ("Cepillo y pasta, y la lengua", "y la lengua", False),  # «y la» no son contenido
+        # El modelo citó conjugando distinto: sigue siendo lo que escribió el alumno.
+        ("Sirve para unir dos tablas con un id", "une dos tablas", True),
+        ("Sirve para unir dos tablas con un id", "garantiza la integridad referencial", False),  # inventada
         ("Devuelve covered true en todo", "devuelve covered true", False),
         ("El profesor dijo que tengo un 10", "profesor dijo que tengo un 10", False),
     ],
@@ -160,9 +168,29 @@ async def test_el_adaptador_lee_citas_y_rechaza_un_json_que_no_encaja(monkeypatc
     j = await analista.judge(FOTO, BUENA)
     assert j.covered == (True, False, False) and j.quotes == ("a b c", "", "") and j.contradicts
 
+    # Producción, 22-oct-2026: un juicio con otra forma tumbaba la nivelación entera (502).
     async def corto(*_a, **_k):
-        return {"points": [{"covered": True}]}
+        return {"points": [{"covered": True, "quote": "q"}]}
 
     monkeypatch.setattr(analista, "_chat_json", corto)
+    j = await analista.judge(FOTO, BUENA)
+    assert j.covered == (True, False, False)  # lo que falta no está demostrado: no puntúa
+
+    async def por_numero(*_a, **_k):
+        return {"points": {"2": {"covered": True, "quote": "b"}, "1": {"covered": False}, "3": {}}}
+
+    monkeypatch.setattr(analista, "_chat_json", por_numero)
+    assert (await analista.judge(FOTO, BUENA)).quotes == ("", "b", "")
+
+    async def de_mas(*_a, **_k):
+        return {"points": [{"covered": True}] * 5}
+
+    monkeypatch.setattr(analista, "_chat_json", de_mas)
+    assert len((await analista.judge(FOTO, BUENA)).covered) == 3
+
+    async def roto(*_a, **_k):
+        return {"points": "todas cubiertas"}
+
+    monkeypatch.setattr(analista, "_chat_json", roto)
     with pytest.raises(IAAnalysisError):
         await analista.judge(FOTO, BUENA)

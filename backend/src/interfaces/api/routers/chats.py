@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import json
+from contextlib import aclosing
 import logging
 
 from src.application.services.conversation_memory import ConversationMemory
@@ -292,19 +293,22 @@ async def stream_message(
             pieces: list[str] = []
             envelope = None
             final = ""
-            async for token, env in tutor.answer_stream(
+            respuesta = tutor.answer_stream(
                 document_id=chat.document_id,
                 question=question,
                 student_id=UUID(current_user_id),
                 history=historial,
                 **({"class_session": sesion} if sesion is not None else {}),
-            ):
-                if env is not None:
-                    envelope = env
-                    final = token
-                else:
-                    pieces.append(token)
-                    yield _sse("token", {"content": token})
+            )
+            # Si el alumno se va a mitad, se cierra aquí y no desde otra tarea (ver /speech).
+            async with aclosing(respuesta):
+                async for token, env in respuesta:
+                    if env is not None:
+                        envelope = env
+                        final = token
+                    else:
+                        pieces.append(token)
+                        yield _sse("token", {"content": token})
 
             # Se guarda el texto con el que cerró el servicio, no los tokens crudos: ahí
             # ya se quitaron los esquemas que no se pueden pintar (ADR-048).

@@ -123,8 +123,15 @@ def precheck(question: OpenQuestion, answer: str) -> OpenAnswerGrade | None:
 
 
 #: Palabras de una cita que tienen que aparecer en la respuesta. Una cita de una o
-#: dos palabras ("luz") no prueba que se haya explicado nada.
-MIN_QUOTE_WORDS = 3
+#: Palabras CON CONTENIDO que una cita necesita. Antes se pedían 3 palabras cualquiera:
+#: medido en producción (22-oct-2026), descartaba citas válidas y cortas («Evita caries»,
+#: «mal aliento», «dos minutos») y respuestas correctas salían «incorrect». Contar solo
+#: las palabras con contenido sigue rechazando citas vacías como «La luz».
+MIN_QUOTE_CONTENT_WORDS = 2
+_VACIAS = frozenset(
+    "a al ante bajo con contra de del desde el en entre es esta este ha hacia hasta la las le les lo los "
+    "mas mi muy no o para pero por que se sin sobre su sus te tu un una uno unos unas y ya yo".split()
+)
 #: Lo que habla de la corrección y no del tema. Una "cita" así no expresa ninguna
 #: idea clave aunque esté en la respuesta (inyección medida en el banco).
 _META = re.compile(
@@ -134,10 +141,29 @@ _META = re.compile(
 )
 
 
+#: Parecido mínimo entre la cita y un fragmento de la respuesta. El modelo a veces cita
+#: conjugando distinto («une dos tablas» por «unir dos tablas»): sigue siendo lo que
+#: escribió el alumno. Una cita inventada no se parece a ningún fragmento.
+QUOTE_SIMILARITY = 0.8
+
+
+def _aparece(cita: str, respuesta: str) -> bool:
+    """La cita está en la respuesta, literal o casi (mismo número de palabras, ≥ 80 %)."""
+    if cita in respuesta:
+        return True
+    palabras, n = respuesta.split(), len(cita.split())
+    for i in range(max(1, len(palabras) - n + 1)):
+        trozo = " ".join(palabras[i : i + n])
+        if difflib.SequenceMatcher(None, cita, trozo).ratio() >= QUOTE_SIMILARITY:
+            return True
+    return False
+
+
 def quote_supports(answer: str, quote: str) -> bool:
     """La cita está en la respuesta, tiene sustancia y habla del tema, no de corregir."""
     cita = _plano(quote)
-    if len(cita.split()) < MIN_QUOTE_WORDS or cita not in _plano(answer):
+    contenido = [w for w in cita.split() if w not in _VACIAS]
+    if len(contenido) < MIN_QUOTE_CONTENT_WORDS or not _aparece(cita, _plano(answer)):
         return False
     return not _META.search(cita)
 

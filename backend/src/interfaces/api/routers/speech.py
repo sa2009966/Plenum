@@ -147,11 +147,18 @@ async def speak(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La voz no está disponible ahora mismo.")
 
     async def audio():
-        yield primero
         try:
+            yield primero
             async for trozo in trozos:
                 yield trozo
         except VoiceUnavailable:
             return  # el audio queda corto; el texto sigue en pantalla
+        finally:
+            # Si el alumno corta el audio, el cliente cierra la conexión a medias. Sin
+            # cerrarlo aquí, en la misma tarea, Python cerraba después el generador
+            # interno desde otra: «aclose(): asynchronous generator is already
+            # running» en producción (22-oct-2026), y la conexión con OpenAI quedaba
+            # abierta hasta el recolector.
+            await trozos.aclose()
 
     return StreamingResponse(audio(), media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=86400"})
