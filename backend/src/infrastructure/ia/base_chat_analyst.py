@@ -177,6 +177,27 @@ def _pregunta_de_repaso(item, request: LessonRequest) -> QuizQuestion | None:
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
 
+
+def _puntos_del_juicio(crudo, esperados: int) -> list | None:
+    """Los juicios por idea clave, tolerando las formas que devuelve el modelo, o None.
+
+    En producción (22-oct-2026) una nivelación falló dos veces con 502 porque el juicio
+    no traía exactamente una entrada por idea. Se acepta:
+    - un diccionario por número ({"1": {...}, "2": {...}});
+    - entradas de más (se descartan las sobrantes);
+    - entradas de menos: las que faltan cuentan como NO cubiertas, porque lo que no se
+      demuestra con una cita no puntúa.
+    Lo que no se parece a nada de eso sigue siendo un error (None).
+    """
+    if isinstance(crudo, dict):
+        try:
+            crudo = [crudo[k] for k in sorted(crudo, key=lambda k: int(str(k).strip()))]
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(crudo, list) or not crudo or not any(isinstance(p, dict) for p in crudo):
+        return None
+    return (crudo + [{}] * esperados)[:esperados]
+
 class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, LessonGenerator, OpenAnswerJudge):
     """Implementa analyze/answer_question/generate_quiz sobre un endpoint de chat.
 
@@ -573,8 +594,16 @@ class BaseChatAnalyst(IAAnalyst, ChatTitleGenerator, ConversationSummarizer, Les
         """Juicio de una respuesta abierta (ADR-052). Temperatura 0: corregir no es crear."""
         prompt = self._policy.judge_open_answer(question, answer)
         data = await self._chat_json(prompt.system, prompt.user, model=None, temperature=0.0, task="judge")
-        puntos = data.get("points")
-        if not isinstance(puntos, list) or len(puntos) != len(question.key_points):
+        puntos = _puntos_del_juicio(data.get("points"), len(question.key_points))
+        if puntos is None:
+            # Sin rastro, en producción no había forma de saber por qué fallaba (22-oct-2026).
+            # Solo la FORMA, no el contenido: lleva citas de lo que escribió el alumno.
+            crudo = data.get("points")
+            logger.warning(
+                "juez_forma_invalida tipo=%s largo=%s esperado=%d claves=%s",
+                type(crudo).__name__, len(crudo) if hasattr(crudo, "__len__") else "-",
+                len(question.key_points), sorted(data)[:6],
+            )
             raise IAAnalysisError(_MSG_RESPUESTA)
         return RubricJudgement(
             covered=tuple(isinstance(p, dict) and p.get("covered") is True for p in puntos),
